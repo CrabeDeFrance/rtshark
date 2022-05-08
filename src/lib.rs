@@ -151,15 +151,15 @@ impl IntoIterator for Packet {
 }
 
 #[derive(TypedBuilder)]
-pub struct RSharkBuilder<'a> {
+pub struct RTSharkBuilder<'a> {
     input_path: String,
     input_type: InputType,
     #[builder(default)]
     metadata_filter: Vec<&'a str>,
 }
 
-impl<'a> RSharkBuilder<'a> {
-    pub fn run(&self) -> Result<RShark, String> {
+impl<'a> RTSharkBuilder<'a> {
+    pub fn run(&self) -> Result<RTShark, String> {
         // TODO : test if tshark exists
 
         let mut tshark_params = vec![
@@ -209,23 +209,23 @@ impl<'a> RSharkBuilder<'a> {
         let reader = quick_xml::Reader::from_reader(buf_reader);
 
         let filters: Vec<String> = self.metadata_filter.iter().map(|s| s.to_string()).collect();
-        Ok(RShark::new(tshark_child, reader, filters))
+        Ok(RTShark::new(tshark_child, reader, filters))
     }
 }
 
-pub struct RShark {
+pub struct RTShark {
     process: Option<Child>,
     parser: quick_xml::Reader<BufReader<ChildStdout>>,
     filters: Vec<String>,
 }
 
-impl RShark {
+impl RTShark {
     fn new(
         process: Child,
         parser: quick_xml::Reader<BufReader<ChildStdout>>,
         filters: Vec<String>,
     ) -> Self {
-        RShark {
+        RTShark {
             process: Some(process),
             parser,
             filters,
@@ -248,7 +248,7 @@ impl RShark {
     }
 
     fn attr_by_name_u32<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<u32, String> {
-        match RShark::attr_by_name(attrs, key) {
+        match RTShark::attr_by_name(attrs, key) {
             Err(e) => Err(e),
             Ok(v) => v
                 .parse::<u32>()
@@ -257,23 +257,23 @@ impl RShark {
     }
 
     fn build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option<Metadata>, String> {
-        let name = RShark::attr_by_name(&mut tag.attributes(), b"name")?;
+        let name = RTShark::attr_by_name(&mut tag.attributes(), b"name")?;
         // skip data
         if filters.contains(&name) {
             return Ok(None);
         }
 
-        let value = RShark::attr_by_name(&mut tag.attributes(), b"show")?;
+        let value = RTShark::attr_by_name(&mut tag.attributes(), b"show")?;
 
         let mut metadata = Metadata::new(name, value);
 
-        if let Ok(position) = RShark::attr_by_name_u32(&mut tag.attributes(), b"pos") {
+        if let Ok(position) = RTShark::attr_by_name_u32(&mut tag.attributes(), b"pos") {
             metadata.position = position;
         }
-        if let Ok(size) = RShark::attr_by_name_u32(&mut tag.attributes(), b"size") {
+        if let Ok(size) = RTShark::attr_by_name_u32(&mut tag.attributes(), b"size") {
             metadata.size = size;
         }
-        if let Ok(display) = RShark::attr_by_name(&mut tag.attributes(), b"showname") {
+        if let Ok(display) = RTShark::attr_by_name(&mut tag.attributes(), b"showname") {
             metadata.display = display;
         }
         Ok(Some(metadata))
@@ -292,7 +292,7 @@ impl RShark {
                 Ok(Event::Start(ref e)) => match e.name() {
                     b"packet" => (),
                     b"proto" => {
-                        let proto = RShark::attr_by_name(&mut e.attributes(), b"name")?;
+                        let proto = RTShark::attr_by_name(&mut e.attributes(), b"name")?;
 
                         if proto.eq("fake-field-wrapper") {
                             store_metadata = false;
@@ -308,7 +308,7 @@ impl RShark {
                             continue;
                         }
 
-                        let metadata = RShark::build_metadata(e, filters)?;
+                        let metadata = RTShark::build_metadata(e, filters)?;
                         if let Some(metadata) = metadata {
                             packet.last_layer_mut().unwrap().add(metadata);
                         }
@@ -323,7 +323,7 @@ impl RShark {
                             continue;
                         }
 
-                        let metadata = RShark::build_metadata(e, filters)?;
+                        let metadata = RTShark::build_metadata(e, filters)?;
                         if let Some(metadata) = metadata {
                             packet.last_layer_mut().unwrap().add(metadata);
                         }
@@ -355,11 +355,11 @@ impl RShark {
     pub fn read(&mut self) -> Result<Output, String> {
         let xml_reader = &mut self.parser;
 
-        let msg = RShark::parse_xml(xml_reader, &self.filters);
+        let msg = RTShark::parse_xml(xml_reader, &self.filters);
         if let Ok(ref msg) = msg {
             let done = match msg {
                 Output::EOF => match self.process {
-                    Some(ref mut process) => RShark::try_wait_has_exited(process),
+                    Some(ref mut process) => RTShark::try_wait_has_exited(process),
                     _ => true,
                 },
                 _ => false,
@@ -381,7 +381,7 @@ impl RShark {
                     Some(_exitcode) => true,
                 },
                 Err(e) => {
-                    eprintln!("Error while killing rshark: wait: {e}");
+                    eprintln!("Error while killing rtshark: wait: {e}");
                     false
                 }
             };
@@ -389,10 +389,10 @@ impl RShark {
             if !done {
                 match process.kill() {
                     Ok(()) => (),
-                    Err(e) => eprintln!("Error while killing rshark: kill: {e}"),
+                    Err(e) => eprintln!("Error while killing rtshark: kill: {e}"),
                 }
                 if let Err(e) = process.wait() {
-                    eprintln!("Error while killing rshark: wait: {e}");
+                    eprintln!("Error while killing rtshark: wait: {e}");
                 }
             }
 
@@ -429,7 +429,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -458,7 +458,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -480,7 +480,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -502,7 +502,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -524,7 +524,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]);
+        let msg = RTShark::parse_xml(&mut reader, &vec![]);
 
         match msg {
             Err(_) => (),
@@ -545,7 +545,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]);
+        let msg = RTShark::parse_xml(&mut reader, &vec![]);
         match msg {
             Err(_) => (),
             _ => panic!("invalid result"),
@@ -575,7 +575,7 @@ mod tests {
     fn test_access_packet_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -597,7 +597,7 @@ mod tests {
     fn test_access_packet_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -619,7 +619,7 @@ mod tests {
     fn test_access_layer_index() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -638,7 +638,7 @@ mod tests {
     fn test_access_layer_name() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -680,7 +680,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -702,7 +702,7 @@ mod tests {
     fn test_access_layer_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -719,7 +719,7 @@ mod tests {
     fn test_access_layer_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -736,7 +736,7 @@ mod tests {
     fn test_access_layer_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -754,7 +754,7 @@ mod tests {
     fn test_parser_filter_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RShark::parse_xml(&mut reader, &vec!["ip.src".to_string()]).unwrap();
+        let msg = RTShark::parse_xml(&mut reader, &vec!["ip.src".to_string()]).unwrap();
         let pkt = match msg {
             Output::Packet(p) => p,
             _ => panic!("invalid Output type"),
@@ -781,26 +781,26 @@ mod tests {
         </pdml>"#;
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
-        match RShark::parse_xml(&mut reader, &vec![]).unwrap() {
+        match RTShark::parse_xml(&mut reader, &vec![]).unwrap() {
             Output::Packet(p) => assert!(p.layer_name("tcp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match RShark::parse_xml(&mut reader, &vec![]).unwrap() {
+        match RTShark::parse_xml(&mut reader, &vec![]).unwrap() {
             Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match RShark::parse_xml(&mut reader, &vec![]).unwrap() {
+        match RTShark::parse_xml(&mut reader, &vec![]).unwrap() {
             Output::Packet(p) => assert!(p.layer_name("igmp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match RShark::parse_xml(&mut reader, &vec![]).unwrap() {
+        match RTShark::parse_xml(&mut reader, &vec![]).unwrap() {
             Output::EOF => (),
             _ => panic!("invalid Output type"),
         }
     }
 
     #[test]
-    fn test_rshark_input_pcap() {
+    fn test_rtshark_input_pcap() {
         let pcap = include_bytes!("test.pcap");
 
         // create temp dir and copy pcap in it
@@ -811,35 +811,34 @@ mod tests {
         output.flush().expect("unable to flush");
 
         // run tshark on it
-        let builder = RSharkBuilder::builder()
+        let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap().to_string())
             .input_type(InputType::File)
             .build();
-        let mut rshark = builder.run().unwrap();
+        let mut rtshark = builder.run().unwrap();
 
         // read a packet
-        match rshark.read().unwrap() {
+        match rtshark.read().unwrap() {
             Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
         loop {
-            match rshark.read().unwrap() {
+            match rtshark.read().unwrap() {
                 Output::EOF => break,
                 _ => (),
             }
         }
 
-        rshark.kill();
+        rtshark.kill();
 
-        assert!(rshark.pid().is_none());
+        assert!(rtshark.pid().is_none());
 
-        nix::unistd::unlink(&fifo_path).expect("Error deleting fifo");
-        std::fs::remove_dir(tmp_dir.path()).expect("Error deleting fifo dir");
+        tmp_dir.close().expect("Error deleting fifo dir");
     }
 
     #[test]
-    fn test_rshark_input_fifo() {
+    fn test_rtshark_input_fifo() {
         let pcap = include_bytes!("test.pcap");
 
         // create temp dir
@@ -851,11 +850,11 @@ mod tests {
             .expect("Error creating fifo");
 
         // start tshark on the fifo
-        let builder = RSharkBuilder::builder()
+        let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap().to_string())
             .input_type(InputType::Fifo)
             .build();
-        let mut rshark = builder.run().unwrap();
+        let mut rtshark = builder.run().unwrap();
 
         // send packets in the fifo
         let mut output = std::fs::OpenOptions::new()
@@ -865,19 +864,18 @@ mod tests {
         output.write_all(pcap).expect("unable to write in fifo");
 
         // get analysis
-        match rshark.read().unwrap() {
+        match rtshark.read().unwrap() {
             Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
         // stop tshark
-        rshark.kill();
+        rtshark.kill();
 
         // verify tshark is stopped
-        assert!(rshark.pid().is_none());
+        assert!(rtshark.pid().is_none());
 
         /* remove fifo & tempdir */
-        nix::unistd::unlink(&fifo_path).expect("Error deleting fifo");
-        std::fs::remove_dir(tmp_dir.path()).expect("Error deleting fifo dir");
+        tmp_dir.close().expect("Error deleting fifo dir");
     }
 }
