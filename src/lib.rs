@@ -1,13 +1,8 @@
-use quick_xml::events::attributes::Attributes;
-use quick_xml::events::BytesStart;
-use quick_xml::events::Event;
-use std::io::BufRead;
-use std::io::BufReader;
+use quick_xml::events::{attributes::Attributes, BytesStart, Event};
+use std::io::{BufRead, BufReader};
 use std::os::unix::process::ExitStatusExt;
-use std::process::Child;
-use std::process::ChildStdout;
-use std::process::Command;
-use std::process::Stdio;
+use std::process::{Child, ChildStdout, Command, Stdio};
+use typed_builder::TypedBuilder;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InputType {
@@ -20,8 +15,6 @@ pub enum Output {
     EOF,
     Empty,
 }
-
-use typed_builder::TypedBuilder;
 
 #[derive(Clone, Default)]
 pub struct Metadata {
@@ -155,7 +148,7 @@ pub struct RTSharkBuilder<'a> {
     input_path: String,
     input_type: InputType,
     #[builder(default)]
-    metadata_filter: Vec<&'a str>,
+    metadata_blacklist: Vec<&'a str>,
 }
 
 impl<'a> RTSharkBuilder<'a> {
@@ -208,7 +201,11 @@ impl<'a> RTSharkBuilder<'a> {
 
         let reader = quick_xml::Reader::from_reader(buf_reader);
 
-        let filters: Vec<String> = self.metadata_filter.iter().map(|s| s.to_string()).collect();
+        let filters: Vec<String> = self
+            .metadata_blacklist
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         Ok(RTShark::new(tshark_child, reader, filters))
     }
 }
@@ -406,6 +403,12 @@ impl RTShark {
 
     pub fn try_wait_has_exited(child: &mut Child) -> bool {
         matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some())
+    }
+}
+
+impl Drop for RTShark {
+    fn drop(&mut self) {
+        self.kill()
     }
 }
 
@@ -838,6 +841,40 @@ mod tests {
     }
 
     #[test]
+    fn test_rtshark_input_pcap_blacklist() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&fifo_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // run tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap().to_string())
+            .input_type(InputType::File)
+            .metadata_blacklist(vec!["ip.src"])
+            .build();
+        let mut rtshark = builder.run().unwrap();
+
+        // read a packet
+        let pkt = match rtshark.read().unwrap() {
+            Output::Packet(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        assert!(ip.metadata("ip.src").is_none());
+        assert!(ip.metadata("ip.dst").unwrap().value().eq("127.0.0.1"));
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
     fn test_rtshark_input_fifo() {
         let pcap = include_bytes!("test.pcap");
 
@@ -874,6 +911,153 @@ mod tests {
 
         // verify tshark is stopped
         assert!(rtshark.pid().is_none());
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_drop() {
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // start tshark on the fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap().to_string())
+            .input_type(InputType::Fifo)
+            .build();
+
+        let pid = {
+            let rtshark = builder.run().unwrap();
+            let pid = rtshark.pid().unwrap();
+
+            assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
+            pid
+        };
+
+        // verify tshark is stopped
+        assert!(std::path::Path::new(&format!("/proc/{pid}")).exists() == false);
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_killed() {
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // start tshark on the fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap().to_string())
+            .input_type(InputType::Fifo)
+            .build();
+
+        let mut rtshark = builder.run().unwrap();
+
+        // killing badly
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(rtshark.pid().unwrap() as libc::pid_t),
+            nix::sys::signal::Signal::SIGKILL,
+        )
+        .unwrap();
+
+        // reading from process output should give EOF
+        match rtshark.read().unwrap() {
+            Output::EOF => (),
+            _ => panic!("invalid Output type"),
+        }
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_fifo_lost() {
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // start tshark on the fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap().to_string())
+            .input_type(InputType::Fifo)
+            .build();
+
+        let mut rtshark = builder.run().unwrap();
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+
+        // reading from process output should give EOF
+        match rtshark.read().unwrap() {
+            Output::EOF => (),
+            _ => panic!("invalid Output type"),
+        }
+    }
+
+    #[test]
+    fn test_rtshark_fifo_opened_then_closed() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // start tshark on the fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap().to_string())
+            .input_type(InputType::Fifo)
+            .build();
+
+        let mut rtshark = builder.run().unwrap();
+
+        // send packets in the fifo then close it immediately
+        {
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&fifo_path)
+                .expect("unable to open fifo");
+            output.write_all(pcap).expect("unable to write in fifo");
+        }
+
+        // get analysis
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        match rtshark.read().unwrap() {
+            Output::EOF => (),
+            _ => panic!("invalid Output type"),
+        }
+
+        // stop tshark
+        rtshark.kill();
+
+        // reading from process output should give EOF
+        match rtshark.read().unwrap() {
+            Output::EOF => (),
+            _ => panic!("invalid Output type"),
+        }
 
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
