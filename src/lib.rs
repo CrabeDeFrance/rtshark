@@ -1,5 +1,5 @@
 use quick_xml::events::{attributes::Attributes, BytesStart, Event};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Result};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use typed_builder::TypedBuilder;
@@ -149,12 +149,22 @@ pub struct RTSharkBuilder<'a> {
     input_type: InputType,
     #[builder(default)]
     metadata_blacklist: Vec<&'a str>,
+    #[builder(default)]
+    env_path: &'a str,
 }
 
 impl<'a> RTSharkBuilder<'a> {
-    pub fn run(&self) -> Result<RTShark, String> {
-        // TODO : test if tshark exists
+    pub fn run(&self) -> Result<RTShark> {
+        // test if input file exists
+        std::fs::metadata(&self.input_path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => std::io::Error::new(
+                e.kind(),
+                format!("Unable to find {}: {}", &self.input_path, e),
+            ),
+            _ => e,
+        })?;
 
+        // prepare tshark command line parameters
         let mut tshark_params = vec![
             if self.input_type == InputType::File {
                 "-r"
@@ -185,17 +195,29 @@ impl<'a> RTSharkBuilder<'a> {
         */
 
         // piping from tshark, not to load the entire JSON in ram...
-        let tshark_child = Command::new("tshark")
-            .args(&tshark_params)
-            .stdout(Stdio::piped())
-            .spawn();
-        if tshark_child.is_err() {
-            return Err(format!(
-                "Error launching tshark: {:?}: {}",
-                tshark_child, self.input_path
-            ));
-        }
-        let mut tshark_child = tshark_child.unwrap();
+        // this may fail if tshark is not found in path
+
+        let tshark_child = if self.env_path.is_empty() {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+        } else {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .env("PATH", self.env_path)
+                .spawn()
+        };
+
+        let mut tshark_child = tshark_child.map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => {
+                std::io::Error::new(e.kind(), format!("Unable to find tshark: {}", e))
+            }
+            _ => e,
+        })?;
 
         let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
 
@@ -229,31 +251,46 @@ impl RTShark {
         }
     }
 
-    fn attr_by_name<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<String, String> {
+    fn attr_by_name<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<String> {
         for attr in attrs {
-            let attr = attr.map_err(|e| format!("Error decoding xml attribute: {:?}", e))?;
+            let attr = attr.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Error decoding xml attribute: {e:?}"),
+                )
+            })?;
             if attr.key == key {
-                let value = std::str::from_utf8(&attr.value)
-                    .map_err(|e| format!("Error decoding utf8 xml attribute: {:?}", e))?;
+                let value = std::str::from_utf8(&attr.value).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Error decoding utf8 value: {e:?}"),
+                    )
+                })?;
                 return Ok(value.to_owned());
             }
         }
-        Err(format!(
-            "xml parsing error: no key '{}'",
-            std::str::from_utf8(key).unwrap()
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "xml lookup error: no key '{}'",
+                std::str::from_utf8(key).unwrap()
+            ),
         ))
     }
 
-    fn attr_by_name_u32<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<u32, String> {
+    fn attr_by_name_u32<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<u32> {
         match RTShark::attr_by_name(attrs, key) {
             Err(e) => Err(e),
-            Ok(v) => v
-                .parse::<u32>()
-                .map_err(|e| format!("xml decoding error: cannot parse u32 {}", e)),
+            Ok(v) => v.parse::<u32>().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Error decoding u32 value: {e:?}"),
+                )
+            }),
         }
     }
 
-    fn build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option<Metadata>, String> {
+    fn build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option<Metadata>> {
         let name = RTShark::attr_by_name(&mut tag.attributes(), b"name")?;
         // skip data
         if filters.contains(&name) {
@@ -279,7 +316,7 @@ impl RTShark {
     fn parse_xml<B: BufRead>(
         xml_reader: &mut quick_xml::Reader<B>,
         filters: &[String],
-    ) -> Result<Output, String> {
+    ) -> Result<Output> {
         let mut buf = vec![];
         let mut packet = Packet::new();
         let mut store_metadata = false;
@@ -338,10 +375,13 @@ impl RTShark {
                     return Ok(Output::EOF);
                 }
                 Err(e) => {
-                    return Err(format!(
-                        "xml parsing error: {} at tshark output offset {}",
-                        e,
-                        xml_reader.buffer_position()
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "xml parsing error: {} at tshark output offset {}",
+                            e,
+                            xml_reader.buffer_position()
+                        ),
                     ));
                 }
                 Ok(_) => (),
@@ -349,7 +389,7 @@ impl RTShark {
         }
     }
 
-    pub fn read(&mut self) -> Result<Output, String> {
+    pub fn read(&mut self) -> Result<Output> {
         let xml_reader = &mut self.parser;
 
         let msg = RTShark::parse_xml(xml_reader, &self.filters);
@@ -1061,5 +1101,54 @@ mod tests {
 
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_file_missing() {
+        // start tshark on a missing fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path("/missing/rtshark/fifo".to_string())
+            .input_type(InputType::File)
+            .build();
+
+        let ret = builder.run();
+
+        match ret {
+            Ok(_) => panic!("We can't start if fifo is missing"),
+            Err(e) => println!("{e}"),
+        }
+    }
+
+    #[test]
+    fn test_rtshark_fifo_missing() {
+        // start tshark on a missing fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path("/missing/rtshark/fifo".to_string())
+            .input_type(InputType::Fifo)
+            .build();
+
+        let ret = builder.run();
+
+        match ret {
+            Ok(_) => panic!("We can't start if fifo is missing"),
+            Err(e) => println!("{e}"),
+        }
+    }
+
+    #[test]
+    fn test_rtshark_tshark_missing() {
+        // start tshark on a missing fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path("/missing/rtshark/fifo".to_string())
+            .input_type(InputType::Fifo)
+            .env_path("/invalid/path")
+            .build();
+
+        let ret = builder.run();
+
+        match ret {
+            Ok(_) => panic!("We can't start if tshark is missing"),
+            Err(e) => println!("{e}"),
+        }
     }
 }
