@@ -1,9 +1,6 @@
-//use nix::sys::signal::Signal;
-//use nix::unistd::Pid;
 use quick_xml::events::attributes::Attributes;
 use quick_xml::events::BytesStart;
 use quick_xml::events::Event;
-use signal_hook::iterator::Signals;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::os::unix::process::ExitStatusExt;
@@ -11,7 +8,6 @@ use std::process::Child;
 use std::process::ChildStdout;
 use std::process::Command;
 use std::process::Stdio;
-use std::thread;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InputType {
@@ -65,7 +61,6 @@ impl Metadata {
     }
 }
 
-// and we'll implement IntoIterator
 impl IntoIterator for Layer {
     type Item = Metadata;
     type IntoIter = std::vec::IntoIter<Self::Item>;
@@ -190,9 +185,8 @@ impl<'a> RSharkBuilder<'a> {
             tshark_params.extend(&["-l"]);
         }
 
-        /*
+        /* TODO : implement filters
         {
-            // if I filter in fifo mode then tshark doesn't write the output pcap file
             //tshark_params.extend(&[filters]);
         }
         */
@@ -203,7 +197,10 @@ impl<'a> RSharkBuilder<'a> {
             .stdout(Stdio::piped())
             .spawn();
         if tshark_child.is_err() {
-            return Err(format!("Error launching tshark: {:?}: {}", tshark_child, self.input_path));
+            return Err(format!(
+                "Error launching tshark: {:?}: {}",
+                tshark_child, self.input_path
+            ));
         }
         let mut tshark_child = tshark_child.unwrap();
 
@@ -377,26 +374,6 @@ impl RShark {
     }
 
     pub fn kill(&mut self) {
-        // soooooooo... if I use child.kill() then when I read from a local fifo file (mkfifo)
-        // and I cancel the reading from the fifo, and nothing was written to the fifo at all,
-        // we do kill the tshark process, but our read() on the pipe from tshark hangs.
-        // I don't know why. However if I use nix to send a SIGINT, our read() is interrupted
-        // and all is good...
-        // It might be because tshark launches a child process, dumpcap, because I ask it to save
-        // the pcap file. Or not... I didn't check too much.
-        //
-        // tshark_child.kill()?;
-
-        /*
-        let pid = self.pid();
-        if let Some(pid) = pid {
-            nix::sys::signal::kill(
-                Pid::from_raw(pid as libc::pid_t),
-                Some(Signal::SIGINT),
-            )?;
-        }
-        */
-
         if let Some(ref mut process) = self.process {
             let done = match process.try_wait() {
                 Ok(maybe) => match maybe {
@@ -429,19 +406,6 @@ impl RShark {
 
     pub fn try_wait_has_exited(child: &mut Child) -> bool {
         matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some())
-    }
-
-    pub fn register_child_process_death() {
-        thread::spawn(move || {
-            const SIGNALS: &[libc::c_int] = &[signal_hook::consts::signal::SIGCHLD];
-            let mut sigs = Signals::new(SIGNALS).unwrap();
-            for signal in &mut sigs {
-                //sender.send(()).expect("send child died msg");
-                if let Err(e) = signal_hook::low_level::emulate_default_handler(signal) {
-                    eprintln!("Error calling the low-level signal hook handling: {:?}", e);
-                }
-            }
-        });
     }
 }
 
@@ -846,7 +810,6 @@ mod tests {
         output.write_all(pcap).expect("unable to write pcap");
         output.flush().expect("unable to flush");
 
-
         // run tshark on it
         let builder = RSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap().to_string())
@@ -882,10 +845,11 @@ mod tests {
         // create temp dir
         let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
         let fifo_path = tmp_dir.path().join("pcap.pipe");
-    
+
         // create new fifo and give read, write and execute rights to the owner
-        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU).expect("Error creating fifo");
-        
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
         // start tshark on the fifo
         let builder = RSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap().to_string())
@@ -894,7 +858,10 @@ mod tests {
         let mut rshark = builder.run().unwrap();
 
         // send packets in the fifo
-        let mut output = std::fs::OpenOptions::new().write(true).open(&fifo_path).expect("unable to open fifo");
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&fifo_path)
+            .expect("unable to open fifo");
         output.write_all(pcap).expect("unable to write in fifo");
 
         // get analysis
