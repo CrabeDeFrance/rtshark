@@ -159,12 +159,14 @@ impl IntoIterator for Packet {
 pub struct RSharkBuilder<'a> {
     input_path: String,
     input_type: InputType,
-    #[default]
+    #[builder(default)]
     metadata_filter: Vec<&'a str>,
 }
 
 impl<'a> RSharkBuilder<'a> {
     pub fn run(&self) -> Result<RShark, String> {
+        // TODO : test if tshark exists
+
         let mut tshark_params = vec![
             if self.input_type == InputType::File {
                 "-r"
@@ -201,7 +203,7 @@ impl<'a> RSharkBuilder<'a> {
             .stdout(Stdio::piped())
             .spawn();
         if tshark_child.is_err() {
-            return Err(format!("Error launching tshark: {:?}", tshark_child));
+            return Err(format!("Error launching tshark: {:?}: {}", tshark_child, self.input_path));
         }
         let mut tshark_child = tshark_child.unwrap();
 
@@ -445,6 +447,8 @@ impl RShark {
 
 #[cfg(test)]
 mod tests {
+
+    use std::io::Write;
 
     use super::*;
 
@@ -833,16 +837,26 @@ mod tests {
 
     #[test]
     fn test_rshark_input_pcap() {
-        let pcap = "my.pcap";
+        let pcap = include_bytes!("test.pcap");
 
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&fifo_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+
+        // run tshark on it
         let builder = RSharkBuilder::builder()
-            .input_path(pcap)
+            .input_path(fifo_path.to_str().unwrap().to_string())
             .input_type(InputType::File)
             .build();
         let mut rshark = builder.run().unwrap();
 
+        // read a packet
         match rshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("ipv6").is_some()),
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -856,29 +870,47 @@ mod tests {
         rshark.kill();
 
         assert!(rshark.pid().is_none());
+
+        nix::unistd::unlink(&fifo_path).expect("Error deleting fifo");
+        std::fs::remove_dir(tmp_dir.path()).expect("Error deleting fifo dir");
     }
 
     #[test]
     fn test_rshark_input_fifo() {
-        let fifo = "myfifo";
+        let pcap = include_bytes!("test.pcap");
 
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+    
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU).expect("Error creating fifo");
+        
+        // start tshark on the fifo
         let builder = RSharkBuilder::builder()
-            .input_path(fifo)
-            .input_type(InputType::File)
+            .input_path(fifo_path.to_str().unwrap().to_string())
+            .input_type(InputType::Fifo)
             .build();
         let mut rshark = builder.run().unwrap();
 
-        /* TODO : create a fifo then send packet */
+        // send packets in the fifo
+        let mut output = std::fs::OpenOptions::new().write(true).open(&fifo_path).expect("unable to open fifo");
+        output.write_all(pcap).expect("unable to write in fifo");
 
+        // get analysis
         match rshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("ipv6").is_some()),
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
+        // stop tshark
         rshark.kill();
 
+        // verify tshark is stopped
         assert!(rshark.pid().is_none());
 
-        /* TODO : remove fifo */
+        /* remove fifo & tempdir */
+        nix::unistd::unlink(&fifo_path).expect("Error deleting fifo");
+        std::fs::remove_dir(tmp_dir.path()).expect("Error deleting fifo dir");
     }
 }
