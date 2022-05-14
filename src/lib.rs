@@ -459,6 +459,7 @@ impl<'a> RTSharkBuilder {
             input_path: path,
             live_capture: false,
             metadata_blacklist: &[],
+            pcap_filter: "",
             env_path: "",
             output_path: "",
         }
@@ -475,6 +476,8 @@ pub struct RTSharkBuilderReady<'a> {
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
     metadata_blacklist: &'a [&'a str],
+    /// pcap filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
+    pcap_filter: &'a str,
     /// custom environment path containing tshark application
     env_path: &'a str,
     /// path to input source
@@ -489,6 +492,32 @@ impl<'a> RTSharkBuilderReady<'a> {
     pub fn live_capture(&self) -> Self {
         let mut new = self.clone();
         new.live_capture = true;
+        new
+    }
+
+    /// Filter expression to be passed to libpcap to filter packets.
+    ///
+    /// Warning: these capture filters cannot be specified when reading a capture file.
+    /// There are enabled only when using live_capture().
+    ///
+    /// Packet capturing filter is performed with the pcap library.
+    /// That library supports specifying a filter expression; packets that don’t match that filter are discarded.
+    /// The syntax of a capture filter is defined by the pcap library.
+    /// This syntax is different from the tshark filter syntax.
+    ///
+    /// More information about libpcap filters here : <https://www.tcpdump.org/manpages/pcap-filter.7.html>
+    ///
+    /// ### Example: Prepare an instance of tshark with packet capture filter.
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .live_capture()
+    ///     .pcap_filter("port 53");
+    /// ```
+    pub fn pcap_filter(&self, filter: &'a str) -> Self {
+        let mut new = self.clone();
+        new.pcap_filter = filter;
         new
     }
 
@@ -584,6 +613,10 @@ impl<'a> RTSharkBuilderReady<'a> {
 
         if !self.output_path.is_empty() {
             tshark_params.extend(&["-w", self.output_path]);
+        }
+
+        if self.live_capture && !self.pcap_filter.is_empty() {
+            tshark_params.extend(&["-f", self.pcap_filter]);
         }
 
         /* TODO : implement filters
@@ -1449,6 +1482,49 @@ mod tests {
         assert!(rtshark.pid().is_none());
 
         /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_input_pcap_filter_pcap() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // first, check with the right filter, we get the packet
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap())
+            .live_capture()
+            .pcap_filter("port 53");
+
+        let mut rtshark = builder.run().unwrap();
+
+        // send packets in the fifo
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&fifo_path)
+            .expect("unable to open fifo");
+        output.write_all(pcap).expect("unable to write in fifo");
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        rtshark.kill();
+
+        assert!(rtshark.pid().is_none());
+
+        // then, check with the bad filter, we don't get the packet
+        // TODO (need a pcap with 2 packets, first will be filtered out)
+
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
