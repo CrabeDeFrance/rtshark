@@ -459,7 +459,8 @@ impl<'a> RTSharkBuilder {
             input_path: path,
             live_capture: false,
             metadata_blacklist: &[],
-            pcap_filter: "",
+            capture_filter: "",
+            display_filter: "",
             env_path: "",
             output_path: "",
         }
@@ -476,8 +477,10 @@ pub struct RTSharkBuilderReady<'a> {
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
     metadata_blacklist: &'a [&'a str],
-    /// pcap filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
-    pcap_filter: &'a str,
+    /// capture_filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
+    capture_filter: &'a str,
+    /// display filter : expression filter to match before tshark prints a packet
+    display_filter: &'a str,
     /// custom environment path containing tshark application
     env_path: &'a str,
     /// path to input source
@@ -495,10 +498,10 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
-    /// Filter expression to be passed to libpcap to filter packets.
+    /// Filter expression to be passed to libpcap to filter captured packets.
     ///
     /// Warning: these capture filters cannot be specified when reading a capture file.
-    /// There are enabled only when using live_capture().
+    /// There are enabled only when using live_capture(). This filter will be ignored if live_capture() is not set.
     ///
     /// Packet capturing filter is performed with the pcap library.
     /// That library supports specifying a filter expression; packets that don’t match that filter are discarded.
@@ -511,13 +514,33 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
-    ///     .input_path("/tmp/my.pcap")
+    ///     .input_path("eth0")
     ///     .live_capture()
-    ///     .pcap_filter("port 53");
+    ///     .capture_filter("port 53");
     /// ```
-    pub fn pcap_filter(&self, filter: &'a str) -> Self {
+    pub fn capture_filter(&self, filter: &'a str) -> Self {
         let mut new = self.clone();
-        new.pcap_filter = filter;
+        new.capture_filter = filter;
+        new
+    }
+
+    /// Expression applied on analyzed packet metadata to print and write only matching packets.
+    ///
+    /// Cause the specified filter (which uses the syntax of read/display filters, rather than that of capture filters)
+    /// to be applied before printing a decoded form of packets or writing packets to a file.
+    /// Packets matching the filter are printed or written to file; packets that the matching packets depend upon (e.g., fragments),
+    /// are not printed but are written to file; packets not matching the filter nor depended upon are discarded rather than being printed or written.
+    ///
+    /// ### Example: Prepare an instance of tshark with display filter.
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .display_filter("udp.port == 53");
+    /// ```
+    pub fn display_filter(&self, filter: &'a str) -> Self {
+        let mut new = self.clone();
+        new.display_filter = filter;
         new
     }
 
@@ -573,7 +596,9 @@ impl<'a> RTSharkBuilderReady<'a> {
     }
 
     /// Starts a new tshark process given the provided parameters, mapped to a new [RTShark] instance.
-    /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found, no read permission...
+    /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found or no read permission...
+    /// In other cases (output_path not writable, invalid syntax for pcap_filter or display_filter),
+    /// tshark process will start but will stop a few moments later, leading to a EOF on rtshark.read function.
     /// # Example
     ///
     /// ```
@@ -615,15 +640,13 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["-w", self.output_path]);
         }
 
-        if self.live_capture && !self.pcap_filter.is_empty() {
-            tshark_params.extend(&["-f", self.pcap_filter]);
+        if self.live_capture && !self.capture_filter.is_empty() {
+            tshark_params.extend(&["-f", self.capture_filter]);
         }
 
-        /* TODO : implement filters
-        {
-            //tshark_params.extend(&[filters]);
+        if !self.display_filter.is_empty() {
+            tshark_params.extend(&["-Y", self.display_filter]);
         }
-        */
 
         // piping from tshark, not to load the entire JSON in ram...
         // this may fail if tshark is not found in path
@@ -1413,6 +1436,50 @@ mod tests {
     }
 
     #[test]
+    fn test_rtshark_input_pcap_display_filter() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // first pass: get a udp packet
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .display_filter("udp.port == 53");
+
+        let mut rtshark = builder.run().unwrap();
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        rtshark.kill();
+
+        // second pass: try a tcp packet
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .display_filter("tcp.port == 80");
+
+        let mut rtshark = builder.run().unwrap();
+
+        // we should get EOF since no packet is matching
+        match rtshark.read().unwrap() {
+            Output::EOF => (),
+            _ => panic!("invalid Output type"),
+        }
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
     fn test_rtshark_input_pcap_blacklist() {
         let pcap = include_bytes!("test.pcap");
 
@@ -1501,7 +1568,7 @@ mod tests {
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
             .live_capture()
-            .pcap_filter("port 53");
+            .capture_filter("port 53");
 
         let mut rtshark = builder.run().unwrap();
 
