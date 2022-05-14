@@ -1,16 +1,16 @@
 //! An interface to [TShark], the famous network protocol analyzer. [TShark] is a part of [Wireshark] distribution.
-//! It lets you capture packet data from a live network, or read packets from a previously saved capture file, printing a decoded form of those packets. 
+//! It lets you capture packet data from a live network, or read packets from a previously saved capture file, printing a decoded form of those packets.
 //! TShark's native capture file format is pcapng format, which is also the format used by Wireshark and various other tools.
-//! 
+//!
 //! [Wireshark]: <https://www.wireshark.org/>
 //! [TShark]: <https://www.wireshark.org/docs/man-pages/tshark.html>
-//! 
+//!
 //! Many information about TShark usage could also be found here <https://tshark.dev/>
 //!
 //! TShark application must be installed for this crate to work properly.
 //!
 //! This crates supports both offline processing (using pcap file) and live analysis (using an interface or a fifo).
-//! 
+//!
 //! # Examples
 //!
 //! ```
@@ -24,14 +24,14 @@
 //!     Err(err) =>  { eprintln!("Error running tshark: {err}"); return }
 //!     Ok(rtshark) => rtshark,
 //! };
-//! 
+//!
 //! // read packets until the end of the PCAP file
 //! loop {
 //!     let packet = match rtshark.read().unwrap() {
 //!         rtshark::Output::Packet(p) => p,
 //!         rtshark::Output::EOF => break
 //!     };
-//! 
+//!
 //!     for layer in packet {
 //!         println!("Layer: {}", layer.name());
 //!         for metadata in layer {
@@ -41,7 +41,7 @@
 //! }
 //! ```
 
-use quick_xml::events::{attributes::Attributes, BytesStart, Event};
+use quick_xml::events::{BytesStart, Event};
 use std::io::{BufRead, BufReader, Result};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStdout, Command, Stdio};
@@ -384,20 +384,20 @@ impl Default for Packet {
 
 /// RTSharkBuilder is used to prepares arguments needed to start a tshark instance.
 /// On success, it creates the main [RTShark] object.
-/// 
+///
 /// # Description of the different options
-/// 
+///
 /// ## .input_path(&str)
-/// This is the only mandatory parameter, used to provide source of packets. 
+/// This is the only mandatory parameter, used to provide source of packets.
 /// It enables either -r or -i option of TShark, depending on the use of .live_capture(), see below.
-/// 
+///
 /// ### Without .live_capture()
-/// 
-/// If .live_capture() is not set, TShark will read packet data from a file. It can be any supported capture file format (including gzipped files). 
-/// 
-/// It is possible to use named pipes or stdin (-) here but only with certain (not compressed) capture file formats 
+///
+/// If .live_capture() is not set, TShark will read packet data from a file. It can be any supported capture file format (including gzipped files).
+///
+/// It is possible to use named pipes or stdin (-) here but only with certain (not compressed) capture file formats
 /// (in particular: those that can be read without seeking backwards).
-/// 
+///
 /// ### Example: Prepare an instance of tshark to read a PCAP file
 ///
 /// ```
@@ -405,24 +405,24 @@ impl Default for Packet {
 ///     .input_path("/tmp/my.pcap")
 ///     .build();
 /// ```
-/// 
+///
 /// ### With .live_capture()
-/// 
+///
 /// If .live_capture() is set, a network interface or a named pipe can be used to read packets.
-/// 
-/// Network interface names should match one of the names listed in "tshark -D" (described above); 
+///
+/// Network interface names should match one of the names listed in "tshark -D" (described above);
 /// a number, as reported by "tshark -D", can also be used.
-/// 
-/// If you’re using UNIX, "netstat -i", "ifconfig -a" or "ip link" might also work to list interface names, 
+///
+/// If you’re using UNIX, "netstat -i", "ifconfig -a" or "ip link" might also work to list interface names,
 /// although not all versions of UNIX support the -a option to ifconfig.
-/// Pipe names should be the name of a FIFO (named pipe). 
-/// 
-/// On Windows systems, pipe names must be of the form "\\pipe\.*pipename*". 
-/// 
+/// Pipe names should be the name of a FIFO (named pipe).
+///
+/// On Windows systems, pipe names must be of the form "\\pipe\.*pipename*".
+///
 /// "TCP@<host>:<port>" causes TShark to attempt to connect to the specified port on the specified host and read pcapng or pcap data.
-/// 
+///
 /// Data read from pipes must be in standard pcapng or pcap format. Pcapng data must have the same endianness as the capturing host.
-/// 
+///
 /// ### Example: Prepare an instance of tshark to read from a fifo
 ///
 /// ```
@@ -439,15 +439,15 @@ impl Default for Packet {
 ///     .live_capture()
 ///     .build();
 /// ```
-/// 
+///
 /// ## .live_capture()
-/// 
+///
 /// Enable -i option of TShark.
-/// 
+///
 /// This option must be set to use network interface or pipe for live packet capture. See input_path option for more details.
-/// 
+///
 /// ## .env_path(&str)
-/// 
+///
 /// Replace the PATH environment variable. This is used to specify where to look for tshark application.
 ///
 /// Note that environment variable names are case-insensitive (but case-preserving) on Windows,
@@ -461,13 +461,13 @@ impl Default for Packet {
 ///     .env_path("/opt/local/tshark/")
 ///     .build();
 /// ```
-/// 
+///
 /// ## .metadata_blacklist(&\[&str\])
-/// 
-/// Filter out (blacklist) a list of useless metadata names extracted by tshark, 
+///
+/// Filter out (blacklist) a list of useless metadata names extracted by tshark,
 /// to prevent storing them in [Output] packet structure and consume extra memory.
 /// Filtered [Metadata] will not be available in [Packet]'s [Layer].
-/// 
+///
 /// ### Example: Prepare an instance of tshark with IP source and destination metadata filtered.
 ///
 /// ```
@@ -495,7 +495,7 @@ pub struct RTSharkBuilder<'a> {
     live_capture: bool,
     #[builder(default)]
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
-    metadata_blacklist: &'a[&'a str],
+    metadata_blacklist: &'a [&'a str],
     #[builder(default)]
     /// custom environment path containing tshark application
     env_path: &'a str,
@@ -515,9 +515,10 @@ impl<'a> RTSharkBuilder<'a> {
     pub fn run(&self) -> Result<RTShark> {
         // test if input file exists
         std::fs::metadata(&self.input_path).map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                std::io::Error::new(e.kind(), format!("Unable to find {}: {}", &self.input_path, e))
-            }
+            std::io::ErrorKind::NotFound => std::io::Error::new(
+                e.kind(),
+                format!("Unable to find {}: {}", &self.input_path, e),
+            ),
             _ => e,
         })?;
 
@@ -749,7 +750,8 @@ impl Drop for RTShark {
 }
 
 /// search for an attribute of a XML tag using its name and return a string.
-fn rtshark_attr_by_name<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<String> {
+fn rtshark_attr_by_name<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<String> {
+    let attrs = &mut tag.attributes();
     for attr in attrs {
         let attr = attr.map_err(|e| {
             std::io::Error::new(
@@ -767,18 +769,25 @@ fn rtshark_attr_by_name<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<St
             return Ok(value.to_owned());
         }
     }
+
+    let line = match std::str::from_utf8(tag.attributes_raw()) {
+        Ok(l) => l,
+        Err(_) => "Unable to decode UTF8 XML buffer",
+    };
+
     Err(std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
         format!(
-            "xml lookup error: no key '{}'",
-            std::str::from_utf8(key).unwrap()
+            "xml lookup error: no key '{}' in '{}'",
+            std::str::from_utf8(key).unwrap(),
+            line
         ),
     ))
 }
 
 /// search for an attribute of a XML tag using its name and return a u32.
-fn rtshark_attr_by_name_u32<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Result<u32> {
-    match rtshark_attr_by_name(attrs, key) {
+fn rtshark_attr_by_name_u32<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<u32> {
+    match rtshark_attr_by_name(tag, key) {
         Err(e) => Err(e),
         Ok(v) => v.parse::<u32>().map_err(|e| {
             std::io::Error::new(
@@ -792,13 +801,19 @@ fn rtshark_attr_by_name_u32<'a>(attrs: &mut Attributes<'a>, key: &[u8]) -> Resul
 /// Build a metadata using attributes available on this XML "field" tag.
 /// Sample XML line : <field name="frame.time" show="test time" pos="0" size="0" showname="test time display"/>
 fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option<Metadata>> {
-    let name = rtshark_attr_by_name(&mut tag.attributes(), b"name")?;
+    let name = rtshark_attr_by_name(tag, b"name")?;
+
+    // skip "_ws.expert" info, not related to a packet metadata
+    if name.starts_with("_ws.") {
+        return Ok(None);
+    }
+
     // skip data
     if filters.contains(&name) {
         return Ok(None);
     }
 
-    let value = rtshark_attr_by_name(&mut tag.attributes(), b"show")?;
+    let value = rtshark_attr_by_name(tag, b"show")?;
 
     let mut metadata = Metadata {
         name,
@@ -808,13 +823,13 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
         position: 0,
     };
 
-    if let Ok(position) = rtshark_attr_by_name_u32(&mut tag.attributes(), b"pos") {
+    if let Ok(position) = rtshark_attr_by_name_u32(tag, b"pos") {
         metadata.position = position;
     }
-    if let Ok(size) = rtshark_attr_by_name_u32(&mut tag.attributes(), b"size") {
+    if let Ok(size) = rtshark_attr_by_name_u32(tag, b"size") {
         metadata.size = size;
     }
-    if let Ok(display) = rtshark_attr_by_name(&mut tag.attributes(), b"showname") {
+    if let Ok(display) = rtshark_attr_by_name(tag, b"showname") {
         metadata.display = display;
     }
     Ok(Some(metadata))
@@ -834,7 +849,7 @@ fn parse_xml<B: BufRead>(
             Ok(Event::Start(ref e)) => match e.name() {
                 b"packet" => (),
                 b"proto" => {
-                    let proto = rtshark_attr_by_name(&mut e.attributes(), b"name")?;
+                    let proto = rtshark_attr_by_name(e, b"name")?;
 
                     if proto.eq("fake-field-wrapper") {
                         store_metadata = false;
