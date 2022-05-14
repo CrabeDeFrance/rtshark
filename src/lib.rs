@@ -16,8 +16,7 @@
 //! ```
 //! // Creates a builder with needed tshark parameters
 //! let builder = rtshark::RTSharkBuilder::builder()
-//!     .input_path("/tmp/my.pcap")
-//!     .build();
+//!     .input_path("/tmp/my.pcap");
 //!
 //! // Start a new tshark process
 //! let mut rtshark = match builder.run() {
@@ -45,7 +44,6 @@ use quick_xml::events::{BytesStart, Event};
 use std::io::{BufRead, BufReader, Result};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStdout, Command, Stdio};
-use typed_builder::TypedBuilder;
 
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
 #[derive(Clone)]
@@ -397,134 +395,162 @@ impl Default for Packet {
 }
 
 /// RTSharkBuilder is used to prepares arguments needed to start a tshark instance.
-/// On success, it creates the main [RTShark] object.
-///
-/// # Description of the different options
-///
-/// ## .input_path(&str)
-/// This is the only mandatory parameter, used to provide source of packets.
-/// It enables either -r or -i option of TShark, depending on the use of .live_capture(), see below.
-///
-/// ### Without .live_capture()
-///
-/// If .live_capture() is not set, TShark will read packet data from a file. It can be any supported capture file format (including gzipped files).
-///
-/// It is possible to use named pipes or stdin (-) here but only with certain (not compressed) capture file formats
-/// (in particular: those that can be read without seeking backwards).
-///
-/// ### Example: Prepare an instance of tshark to read a PCAP file
-///
-/// ```
-/// let builder = rtshark::RTSharkBuilder::builder()
-///     .input_path("/tmp/my.pcap")
-///     .build();
-/// ```
-///
-/// ### With .live_capture()
-///
-/// If .live_capture() is set, a network interface or a named pipe can be used to read packets.
-///
-/// Network interface names should match one of the names listed in "tshark -D" (described above);
-/// a number, as reported by "tshark -D", can also be used.
-///
-/// If you’re using UNIX, "netstat -i", "ifconfig -a" or "ip link" might also work to list interface names,
-/// although not all versions of UNIX support the -a option to ifconfig.
-/// Pipe names should be the name of a FIFO (named pipe).
-///
-/// On Windows systems, pipe names must be of the form "\\pipe\.*pipename*".
-///
-/// "TCP@<host>:<port>" causes TShark to attempt to connect to the specified port on the specified host and read pcapng or pcap data.
-///
-/// Data read from pipes must be in standard pcapng or pcap format. Pcapng data must have the same endianness as the capturing host.
-///
-/// ### Example: Prepare an instance of tshark to read from a fifo
-///
-/// ```
-/// let builder = rtshark::RTSharkBuilder::builder()
-///     .input_path("/tmp/my.fifo")
-///     .live_capture()
-///     .build();
-/// ```
-/// ### Example: Prepare an instance of tshark to read from a network interface
-///
-/// ```
-/// let builder = rtshark::RTSharkBuilder::builder()
-///     .input_path("eth0")
-///     .live_capture()
-///     .build();
-/// ```
-///
-/// ## .live_capture()
-///
-/// Enable -i option of TShark.
-///
-/// This option must be set to use network interface or pipe for live packet capture. See input_path option for more details.
-///
-/// ## .env_path(&str)
-///
-/// Replace the PATH environment variable. This is used to specify where to look for tshark application.
-///
-/// Note that environment variable names are case-insensitive (but case-preserving) on Windows,
-/// and case-sensitive on all other platforms.
-///
-/// ### Example: Prepare an instance of tshark when binary is installed in a custom path
-///
-/// ```
-/// let builder = rtshark::RTSharkBuilder::builder()
-///     .input_path("/tmp/my.pcap")
-///     .env_path("/opt/local/tshark/")
-///     .build();
-/// ```
-///
-/// ## .metadata_blacklist(&\[&str\])
-///
-/// Filter out (blacklist) a list of useless metadata names extracted by tshark,
-/// to prevent storing them in [Output] packet structure and consume extra memory.
-/// Filtered [Metadata] will not be available in [Packet]'s [Layer].
-///
-/// ### Example: Prepare an instance of tshark with IP source and destination metadata filtered.
-///
-/// ```
-/// let builder = rtshark::RTSharkBuilder::builder()
-///     .input_path("/tmp/my.pcap")
-///     .metadata_blacklist(&["ip.src", "ip.dst"])
-///     .build();
-/// ```
-/// ## Example: All options together
-///
-/// ```
-/// let builder = rtshark::RTSharkBuilder::builder()
-///     .input_path("/tmp/my.fifo")
-///     .live_capture()
-///     .env_path("/opt/local/tshark/")
-///     .metadata_blacklist(&["ip.src", "ip.dst"])
-///     .build();
-/// ```
-#[derive(TypedBuilder)]
-pub struct RTSharkBuilder<'a> {
-    /// path to input source
-    input_path: &'a str,
-    #[builder(setter(strip_bool))]
-    /// activate live streaming (fifo, network interface). This activates -i option instread of -r.
-    live_capture: bool,
-    #[builder(default)]
-    /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
-    metadata_blacklist: &'a [&'a str],
-    #[builder(default)]
-    /// custom environment path containing tshark application
-    env_path: &'a str,
+/// When the mandatory input_path is set, it creates a [RTSharkBuilderReady] object,
+/// which can be used to add more optional parameters or run to create a [RTShark] instance.
+pub struct RTSharkBuilder {}
+
+impl<'a> RTSharkBuilder {
+    /// Initial builder function which creates an empty object.
+    pub fn builder() -> Self {
+        RTSharkBuilder {}
+    }
+
+    /// This is the only mandatory parameter, used to provide source of packets.
+    /// It enables either -r or -i option of TShark, depending on the use of .live_capture(), see below.
+    ///
+    /// # Without .live_capture()
+    ///
+    /// If .live_capture() is not set, TShark will read packet data from a file. It can be any supported capture file format (including gzipped files).
+    ///
+    /// It is possible to use named pipes or stdin (-) here but only with certain (not compressed) capture file formats
+    /// (in particular: those that can be read without seeking backwards).
+    ///
+    /// ## Example: Prepare an instance of tshark to read a PCAP file
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap");
+    /// ```
+    ///
+    /// # With .live_capture()
+    ///
+    /// If .live_capture() is set, a network interface or a named pipe can be used to read packets.
+    ///
+    /// Network interface names should match one of the names listed in "tshark -D" (described above);
+    /// a number, as reported by "tshark -D", can also be used.
+    ///
+    /// If you’re using UNIX, "netstat -i", "ifconfig -a" or "ip link" might also work to list interface names,
+    /// although not all versions of UNIX support the -a option to ifconfig.
+    /// Pipe names should be the name of a FIFO (named pipe).
+    ///
+    /// On Windows systems, pipe names must be of the form "\\pipe\.*pipename*".
+    ///
+    /// "TCP@<host>:<port>" causes TShark to attempt to connect to the specified port on the specified host and read pcapng or pcap data.
+    ///
+    /// Data read from pipes must be in standard pcapng or pcap format. Pcapng data must have the same endianness as the capturing host.
+    ///
+    /// ## Example: Prepare an instance of tshark to read from a fifo
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.fifo")
+    ///     .live_capture();
+    /// ```
+    /// ## Example: Prepare an instance of tshark to read from a network interface
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("eth0")
+    ///     .live_capture();
+    /// ```
+
+    pub fn input_path(&mut self, path: &'a str) -> RTSharkBuilderReady<'a> {
+        RTSharkBuilderReady::<'a> {
+            input_path: path,
+            live_capture: false,
+            metadata_blacklist: &[],
+            env_path: "",
+            output_path: "",
+        }
+    }
 }
 
-impl<'a> RTSharkBuilder<'a> {
-    /// Starts a new tshark instance given the provided parameters, creating a new [RTShark] object.
-    /// This function may fail if tshark or the path parameter is not found.
-    /// # Example
+/// RTSharkBuilderReady is an object used to run to create a [RTShark] instance.
+/// It is possible to use it to add more optional parameters before starting a tshark application.
+#[derive(Clone)]
+pub struct RTSharkBuilderReady<'a> {
+    /// path to input source
+    input_path: &'a str,
+    /// activate live streaming (fifo, network interface). This activates -i option instread of -r.
+    live_capture: bool,
+    /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
+    metadata_blacklist: &'a [&'a str],
+    /// custom environment path containing tshark application
+    env_path: &'a str,
+    /// path to input source
+    output_path: &'a str,
+}
+
+impl<'a> RTSharkBuilderReady<'a> {
+    /// Enable -i option of TShark.
+    ///
+    /// This option must be set to use network interface or pipe for live packet capture. See input_path() option of [RTSharkBuilder] for more details.
+    ///
+    pub fn live_capture(&self) -> Self {
+        let mut new = self.clone();
+        new.live_capture = true;
+        new
+    }
+
+    /// Filter out (blacklist) a list of useless metadata names extracted by tshark,
+    /// to prevent storing them in [Output] packet structure and consume extra memory.
+    /// Filtered [Metadata] will not be available in [Packet]'s [Layer].
+    ///
+    /// ### Example: Prepare an instance of tshark with IP source and destination metadata filtered.
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
     ///     .input_path("/tmp/my.pcap")
-    ///     .build();
-    /// let tshark = builder.run();
+    ///     .metadata_blacklist(&["ip.src", "ip.dst"]);
+    /// ```
+    pub fn metadata_blacklist(&self, blacklist: &'a [&'a str]) -> Self {
+        let mut new = self.clone();
+        new.metadata_blacklist = blacklist;
+        new
+    }
+
+    /// Replace the PATH environment variable. This is used to specify where to look for tshark executable.
+    ///
+    /// Note that environment variable names are case-insensitive (but case-preserving) on Windows,
+    /// and case-sensitive on all other platforms.
+    ///
+    /// ### Example: Prepare an instance of tshark when binary is installed in a custom path
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .env_path("/opt/local/tshark/");
+    /// ```
+    pub fn env_path(&self, path: &'a str) -> Self {
+        let mut new = self.clone();
+        new.env_path = path;
+        new
+    }
+
+    /// Write raw packet data to outfile or to the standard output if outfile is '-'.
+    /// Note : this option provides raw packet data, not text.
+    ///
+    /// ### Example: Prepare an instance of tshark to store raw packet data
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/in.pcap")
+    ///     .output_path("/tmp/out.pcap");
+    /// ```
+    pub fn output_path(&self, path: &'a str) -> Self {
+        let mut new = self.clone();
+        new.output_path = path;
+        new
+    }
+
+    /// Starts a new tshark process given the provided parameters, mapped to a new [RTShark] instance.
+    /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found, no read permission...
+    /// # Example
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap");
+    /// let tshark: std::io::Result<rtshark::RTShark> = builder.run();
     /// ```
     pub fn run(&self) -> Result<RTShark> {
         // test if input file exists
@@ -555,6 +581,10 @@ impl<'a> RTSharkBuilder<'a> {
         // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
 
         tshark_params.extend(&["-l"]);
+
+        if !self.output_path.is_empty() {
+            tshark_params.extend(&["-w", self.output_path]);
+        }
 
         /* TODO : implement filters
         {
@@ -643,8 +673,7 @@ impl RTShark {
     /// ```
     /// # // Creates a builder with needed tshark parameters
     /// # let builder = rtshark::RTSharkBuilder::builder()
-    /// #     .input_path("/tmp/my.pcap")
-    /// #     .build();
+    /// #     .input_path("/tmp/my.pcap");
     /// // Start a new tshark process
     /// let mut rtshark = match builder.run() {
     ///     Err(err) => { eprintln!("Error running tshark: {err}"); return; }
@@ -693,8 +722,7 @@ impl RTShark {
     /// ```
     /// // Creates a builder with needed tshark parameters
     /// let builder = rtshark::RTSharkBuilder::builder()
-    ///     .input_path("/tmp/my.pcap")
-    ///     .build();
+    ///     .input_path("/tmp/my.pcap");
     ///
     /// // Start a new tshark process
     /// let mut rtshark = match builder.run() {
@@ -739,8 +767,7 @@ impl RTShark {
     /// ```
     /// // Creates a builder with needed tshark parameters
     /// let builder = rtshark::RTSharkBuilder::builder()
-    ///     .input_path("/tmp/my.pcap")
-    ///     .build();
+    ///     .input_path("/tmp/my.pcap");
     ///
     /// // Start a new tshark process
     /// let mut rtshark = match builder.run() {
@@ -786,10 +813,8 @@ fn rtshark_attr_by_name<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<String> {
         }
     }
 
-    let line = match std::str::from_utf8(tag.attributes_raw()) {
-        Ok(l) => l,
-        Err(_) => "Unable to decode UTF8 XML buffer",
-    };
+    let line =
+        std::str::from_utf8(tag.attributes_raw()).unwrap_or("Unable to decode UTF8 XML buffer");
 
     Err(std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
@@ -1323,16 +1348,15 @@ mod tests {
         let pcap = include_bytes!("test.pcap");
 
         // create temp dir and copy pcap in it
-        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
-        let fifo_path = tmp_dir.path().join("file.pcap");
-        let mut output = std::fs::File::create(&fifo_path).expect("unable to open file");
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
         output.write_all(pcap).expect("unable to write pcap");
         output.flush().expect("unable to flush");
 
         // run tshark on it
-        let builder = RTSharkBuilder::builder()
-            .input_path(fifo_path.to_str().unwrap())
-            .build();
+        let builder = RTSharkBuilder::builder().input_path(pcap_path.to_str().unwrap());
+
         let mut rtshark = builder.run().unwrap();
 
         // read a packet
@@ -1360,17 +1384,16 @@ mod tests {
         let pcap = include_bytes!("test.pcap");
 
         // create temp dir and copy pcap in it
-        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
-        let fifo_path = tmp_dir.path().join("file.pcap");
-        let mut output = std::fs::File::create(&fifo_path).expect("unable to open file");
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
         output.write_all(pcap).expect("unable to write pcap");
         output.flush().expect("unable to flush");
 
         // run tshark on it
         let builder = RTSharkBuilder::builder()
-            .input_path(fifo_path.to_str().unwrap())
-            .metadata_blacklist(&["ip.src"])
-            .build();
+            .input_path(pcap_path.to_str().unwrap())
+            .metadata_blacklist(&["ip.src"]);
         let mut rtshark = builder.run().unwrap();
 
         // read a packet
@@ -1403,8 +1426,7 @@ mod tests {
         // start tshark on the fifo
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
-            .live_capture()
-            .build();
+            .live_capture();
         let mut rtshark = builder.run().unwrap();
 
         // send packets in the fifo
@@ -1443,8 +1465,7 @@ mod tests {
         // start tshark on the fifo
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
-            .live_capture()
-            .build();
+            .live_capture();
 
         let pid = {
             let rtshark = builder.run().unwrap();
@@ -1474,8 +1495,7 @@ mod tests {
         // start tshark on the fifo
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
-            .live_capture()
-            .build();
+            .live_capture();
 
         let mut rtshark = builder.run().unwrap();
 
@@ -1509,8 +1529,7 @@ mod tests {
         // start tshark on the fifo
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
-            .live_capture()
-            .build();
+            .live_capture();
 
         let mut rtshark = builder.run().unwrap();
 
@@ -1539,8 +1558,7 @@ mod tests {
         // start tshark on the fifo
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
-            .live_capture()
-            .build();
+            .live_capture();
 
         let mut rtshark = builder.run().unwrap();
 
@@ -1580,9 +1598,7 @@ mod tests {
     #[test]
     fn test_rtshark_file_missing() {
         // start tshark on a missing fifo
-        let builder = RTSharkBuilder::builder()
-            .input_path("/missing/rtshark/fifo")
-            .build();
+        let builder = RTSharkBuilder::builder().input_path("/missing/rtshark/fifo");
 
         let ret = builder.run();
 
@@ -1598,8 +1614,7 @@ mod tests {
         let builder = RTSharkBuilder::builder()
             .input_path("/missing/rtshark/fifo")
             .live_capture()
-            .env_path("/invalid/path")
-            .build();
+            .env_path("/invalid/path");
 
         let ret = builder.run();
 
@@ -1607,5 +1622,117 @@ mod tests {
             Ok(_) => panic!("We can't start if tshark is missing"),
             Err(e) => println!("{e}"),
         }
+    }
+
+    #[test]
+    fn test_rtshark_input_pcap_output_pcap() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let in_path = tmp_dir.path().join("in.pcap");
+        let mut output = std::fs::File::create(&in_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        let out_path = tmp_dir.path().join("out.pcap");
+
+        // run tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(in_path.to_str().unwrap())
+            .output_path(out_path.to_str().unwrap());
+
+        let mut rtshark = builder.run().unwrap();
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        loop {
+            match rtshark.read().unwrap() {
+                Output::EOF => break,
+                _ => (),
+            }
+        }
+
+        rtshark.kill();
+
+        assert!(rtshark.pid().is_none());
+
+        // now check what was written
+        let mut rtshark = RTSharkBuilder::builder()
+            .input_path(out_path.to_str().unwrap())
+            .run()
+            .unwrap();
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_input_fifo_output_pcap() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path = tmp_dir.path().join("pcap.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        let out_path = tmp_dir.path().join("out.pcap");
+
+        // start tshark on the fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path.to_str().unwrap())
+            .output_path(out_path.to_str().unwrap())
+            .live_capture();
+        let mut rtshark = builder.run().unwrap();
+
+        // send packets in the fifo
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&fifo_path)
+            .expect("unable to open fifo");
+        output.write_all(pcap).expect("unable to write in fifo");
+
+        // get analysis
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        // stop tshark
+        rtshark.kill();
+
+        // verify tshark is stopped
+        assert!(rtshark.pid().is_none());
+
+        // now check what was written
+        let mut rtshark = RTSharkBuilder::builder()
+            .input_path(out_path.to_str().unwrap())
+            .run()
+            .unwrap();
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        rtshark.kill();
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
     }
 }
