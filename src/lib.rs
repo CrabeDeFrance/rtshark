@@ -329,6 +329,20 @@ impl Packet {
         self.layers.iter().find(|&layer| layer.name.eq(name))
     }
 
+    /// Get the number of layers for this packet.
+    /// # Examples
+    ///
+    /// ```
+    /// let mut ip_packet = rtshark::Packet::new();
+    /// ip_packet.push("eth".to_string());
+    /// ip_packet.push("ip".to_string());
+    /// ip_packet.push("tcp".to_string());
+    /// assert_eq!(ip_packet.layer_count(), 3);
+    /// ```
+    pub fn layer_count(&self) -> usize {
+        self.layers.len()
+    }
+
     /// Get an iterator on the list of [Layer] for this [Packet].
     /// This iterator does not take ownership of returned data.
     /// This is the opposite of the "into"-iterator which returns owned objects.
@@ -514,13 +528,15 @@ impl<'a> RTSharkBuilder<'a> {
     /// ```
     pub fn run(&self) -> Result<RTShark> {
         // test if input file exists
-        std::fs::metadata(&self.input_path).map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => std::io::Error::new(
-                e.kind(),
-                format!("Unable to find {}: {}", &self.input_path, e),
-            ),
-            _ => e,
-        })?;
+        if !self.live_capture {
+            std::fs::metadata(&self.input_path).map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => std::io::Error::new(
+                    e.kind(),
+                    format!("Unable to find {}: {}", &self.input_path, e),
+                ),
+                _ => e,
+            })?;
+        }
 
         // prepare tshark command line parameters
         let mut tshark_params = vec![
@@ -851,7 +867,7 @@ fn parse_xml<B: BufRead>(
                 b"proto" => {
                     let proto = rtshark_attr_by_name(e, b"name")?;
 
-                    if proto.eq("fake-field-wrapper") {
+                    if ["fake-field-wrapper", "geninfo"].contains(&proto.as_str()) {
                         store_metadata = false;
                         continue;
                     } else {
@@ -1572,22 +1588,6 @@ mod tests {
 
         match ret {
             Ok(_) => panic!("We can't start if file is missing"),
-            Err(e) => println!("{e}"),
-        }
-    }
-
-    #[test]
-    fn test_rtshark_fifo_missing() {
-        // start tshark on a missing fifo
-        let builder = RTSharkBuilder::builder()
-            .input_path("/missing/rtshark/fifo")
-            .live_capture()
-            .build();
-
-        let ret = builder.run();
-
-        match ret {
-            Ok(_) => panic!("We can't start if fifo is missing"),
             Err(e) => println!("{e}"),
         }
     }
