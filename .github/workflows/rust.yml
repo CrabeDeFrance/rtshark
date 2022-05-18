@@ -1,4 +1,4 @@
-name: Rust
+name: Ubuntu compilation and tests
 
 on:
   push:
