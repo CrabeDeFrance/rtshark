@@ -1,4 +1,5 @@
 //! An interface to [TShark], the famous network protocol analyzer. [TShark] is a part of [Wireshark] distribution.
+//! This crate provides an API to start TShark and analyze it's output.
 //! It lets you capture packet data from a live network, or read packets from a previously saved capture file, printing a decoded form of those packets.
 //! TShark's native capture file format is pcapng format, which is also the format used by Wireshark and various other tools.
 //!
