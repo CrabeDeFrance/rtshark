@@ -458,7 +458,7 @@ impl<'a> RTSharkBuilder {
         RTSharkBuilderReady::<'a> {
             input_path: path,
             live_capture: false,
-            metadata_blacklist: &[],
+            metadata_blacklist: vec!(),
             capture_filter: "",
             display_filter: "",
             env_path: "",
@@ -476,7 +476,7 @@ pub struct RTSharkBuilderReady<'a> {
     /// activate live streaming (fifo, network interface). This activates -i option instread of -r.
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
-    metadata_blacklist: &'a [&'a str],
+    metadata_blacklist: Vec<&'a str>,
     /// capture_filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
     capture_filter: &'a str,
     /// display filter : expression filter to match before tshark prints a packet
@@ -547,17 +547,20 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// Filter out (blacklist) a list of useless metadata names extracted by tshark,
     /// to prevent storing them in [Output] packet structure and consume extra memory.
     /// Filtered [Metadata] will not be available in [Packet]'s [Layer].
+    /// 
+    /// This method can be called multiple times to add more metadata in the blacklist.
     ///
     /// ### Example: Prepare an instance of tshark with IP source and destination metadata filtered.
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
     ///     .input_path("/tmp/my.pcap")
-    ///     .metadata_blacklist(&["ip.src", "ip.dst"]);
+    ///     .metadata_blacklist("ip.src")
+    ///     .metadata_blacklist("ip.dst");
     /// ```
-    pub fn metadata_blacklist(&self, blacklist: &'a [&'a str]) -> Self {
+    pub fn metadata_blacklist(&self, blacklist: &'a str) -> Self {
         let mut new = self.clone();
-        new.metadata_blacklist = blacklist;
+        new.metadata_blacklist.push(blacklist);
         new
     }
 
@@ -1493,7 +1496,7 @@ mod tests {
         // spawn tshark on it
         let builder = RTSharkBuilder::builder()
             .input_path(pcap_path.to_str().unwrap())
-            .metadata_blacklist(&["ip.src"]);
+            .metadata_blacklist("ip.src");
         let mut rtshark = builder.spawn().unwrap();
 
         // read a packet
