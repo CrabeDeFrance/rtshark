@@ -1,5 +1,10 @@
 # rtshark
 
+[![Crate][crate-image]][crate-link]
+[![Docs][docs-image]][docs-link]
+[![Build Status][build-image]][build-link]
+[![dependency status][deps-image]][deps-link]
+
 A Rust interface to TShark, the famous network protocol analyzer. [TShark](https://www.wireshark.org/docs/man-pages/tshark.html) is a part of [Wireshark](https://www.wireshark.org/) distribution.
 This crate provides an API to start TShark and analyze it's output.
 It lets you capture packet data from a live network, or read packets from a previously saved capture file, printing a decoded form of those packets.
@@ -48,8 +53,8 @@ Of course, any new proposal should include documentation to explain how to use i
 
 This library follows the Semantic Versioning rules <https://semver.org/>, including :
 
-* Only make breaking changes when you increment the major version. Don’t break the build.
-* Don’t add any new public API (no new pub anything) in patch-level versions. Always increment the minor version if you add any new pub structs, traits, fields, types, functions, methods or anything else.
+* Only make breaking changes when you increment the major version. Don't break the build.
+* Don't add any new public API (no new pub anything) in patch-level versions. Always increment the minor version if you add any new pub structs, traits, fields, types, functions, methods or anything else.
 
 ## License
 
