@@ -1,6 +1,6 @@
 # rtshark
 
-A Rust interface to TShark, the famous network protocol analyzer. TShark is a part of Wireshark (https://www.wireshark.org/) distribution.
+A Rust interface to TShark, the famous network protocol analyzer. TShark is a part of [Wireshark](https://www.wireshark.org/) distribution.
 This crate provides an API to start TShark and analyze it's output.
 It lets you capture packet data from a live network, or read packets from a previously saved capture file, printing a decoded form of those packets.
 TShark's native capture file format is pcapng format, which is also the format used by Wireshark and various other tools.
@@ -39,9 +39,9 @@ loop {
 
 ### New parameters
 
-There is actually no specific work to add more TShark parameters. If you think one important parameter is missing, you can create an issue.
+There is actually no specific work to add more TShark parameters. If you miss an important parameter, you can create an issue.
 But if you want something to be added quickly, please do a patch proposal with the missing parameter or feature.
-Of course, any new proposal should include documentation to explain how to use it and a unit test to validate it.
+Of course, any new proposal should include documentation to explain how to use it and an unit test to validate it.
 
 ### Version
 
