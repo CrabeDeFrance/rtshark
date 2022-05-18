@@ -19,7 +19,7 @@
 //!     .input_path("/tmp/my.pcap");
 //!
 //! // Start a new tshark process
-//! let mut rtshark = match builder.run() {
+//! let mut rtshark = match builder.spawn() {
 //!     Err(err) =>  { eprintln!("Error running tshark: {err}"); return }
 //!     Ok(rtshark) => rtshark,
 //! };
@@ -604,9 +604,9 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
     ///     .input_path("/tmp/my.pcap");
-    /// let tshark: std::io::Result<rtshark::RTShark> = builder.run();
+    /// let tshark: std::io::Result<rtshark::RTShark> = builder.spawn();
     /// ```
-    pub fn run(&self) -> Result<RTShark> {
+    pub fn spawn(&self) -> Result<RTShark> {
         // test if input file exists
         if !self.live_capture {
             std::fs::metadata(&self.input_path).map_err(|e| match e.kind() {
@@ -731,7 +731,7 @@ impl RTShark {
     /// # let builder = rtshark::RTSharkBuilder::builder()
     /// #     .input_path("/tmp/my.pcap");
     /// // Start a new tshark process
-    /// let mut rtshark = match builder.run() {
+    /// let mut rtshark = match builder.spawn() {
     ///     Err(err) => { eprintln!("Error running tshark: {err}"); return; }
     ///     Ok(rtshark) => rtshark
     /// };
@@ -781,7 +781,7 @@ impl RTShark {
     ///     .input_path("/tmp/my.pcap");
     ///
     /// // Start a new tshark process
-    /// let mut rtshark = match builder.run() {
+    /// let mut rtshark = match builder.spawn() {
     ///     Err(err) => { eprintln!("Error running tshark: {err}"); return; }
     ///     Ok(rtshark) => rtshark
     /// };
@@ -826,7 +826,7 @@ impl RTShark {
     ///     .input_path("/tmp/my.pcap");
     ///
     /// // Start a new tshark process
-    /// let mut rtshark = match builder.run() {
+    /// let mut rtshark = match builder.spawn() {
     ///     Err(err) => { eprintln!("Error running tshark: {err}"); return; }
     ///     Ok(rtshark) => println!("tshark PID is {}", rtshark.pid().unwrap())
     /// };
@@ -1410,10 +1410,10 @@ mod tests {
         output.write_all(pcap).expect("unable to write pcap");
         output.flush().expect("unable to flush");
 
-        // run tshark on it
+        // spawn tshark on it
         let builder = RTSharkBuilder::builder().input_path(pcap_path.to_str().unwrap());
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // read a packet
         match rtshark.read().unwrap() {
@@ -1451,7 +1451,7 @@ mod tests {
             .input_path(pcap_path.to_str().unwrap())
             .display_filter("udp.port == 53");
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // read a packet
         match rtshark.read().unwrap() {
@@ -1466,7 +1466,7 @@ mod tests {
             .input_path(pcap_path.to_str().unwrap())
             .display_filter("tcp.port == 80");
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // we should get EOF since no packet is matching
         match rtshark.read().unwrap() {
@@ -1490,11 +1490,11 @@ mod tests {
         output.write_all(pcap).expect("unable to write pcap");
         output.flush().expect("unable to flush");
 
-        // run tshark on it
+        // spawn tshark on it
         let builder = RTSharkBuilder::builder()
             .input_path(pcap_path.to_str().unwrap())
             .metadata_blacklist(&["ip.src"]);
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // read a packet
         let pkt = match rtshark.read().unwrap() {
@@ -1527,7 +1527,7 @@ mod tests {
         let builder = RTSharkBuilder::builder()
             .input_path(fifo_path.to_str().unwrap())
             .live_capture();
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // send packets in the fifo
         let mut output = std::fs::OpenOptions::new()
@@ -1570,7 +1570,7 @@ mod tests {
             .live_capture()
             .capture_filter("port 53");
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // send packets in the fifo
         let mut output = std::fs::OpenOptions::new()
@@ -1611,7 +1611,7 @@ mod tests {
             .live_capture();
 
         let pid = {
-            let rtshark = builder.run().unwrap();
+            let rtshark = builder.spawn().unwrap();
             let pid = rtshark.pid().unwrap();
 
             assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
@@ -1640,7 +1640,7 @@ mod tests {
             .input_path(fifo_path.to_str().unwrap())
             .live_capture();
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // killing badly
         nix::sys::signal::kill(
@@ -1674,7 +1674,7 @@ mod tests {
             .input_path(fifo_path.to_str().unwrap())
             .live_capture();
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
@@ -1703,7 +1703,7 @@ mod tests {
             .input_path(fifo_path.to_str().unwrap())
             .live_capture();
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // send packets in the fifo then close it immediately
         {
@@ -1743,7 +1743,7 @@ mod tests {
         // start tshark on a missing fifo
         let builder = RTSharkBuilder::builder().input_path("/missing/rtshark/fifo");
 
-        let ret = builder.run();
+        let ret = builder.spawn();
 
         match ret {
             Ok(_) => panic!("We can't start if file is missing"),
@@ -1759,7 +1759,7 @@ mod tests {
             .live_capture()
             .env_path("/invalid/path");
 
-        let ret = builder.run();
+        let ret = builder.spawn();
 
         match ret {
             Ok(_) => panic!("We can't start if tshark is missing"),
@@ -1780,12 +1780,12 @@ mod tests {
 
         let out_path = tmp_dir.path().join("out.pcap");
 
-        // run tshark on it
+        // spawn tshark on it
         let builder = RTSharkBuilder::builder()
             .input_path(in_path.to_str().unwrap())
             .output_path(out_path.to_str().unwrap());
 
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // read a packet
         match rtshark.read().unwrap() {
@@ -1807,7 +1807,7 @@ mod tests {
         // now check what was written
         let mut rtshark = RTSharkBuilder::builder()
             .input_path(out_path.to_str().unwrap())
-            .run()
+            .spawn()
             .unwrap();
 
         // read a packet
@@ -1840,7 +1840,7 @@ mod tests {
             .input_path(fifo_path.to_str().unwrap())
             .output_path(out_path.to_str().unwrap())
             .live_capture();
-        let mut rtshark = builder.run().unwrap();
+        let mut rtshark = builder.spawn().unwrap();
 
         // send packets in the fifo
         let mut output = std::fs::OpenOptions::new()
@@ -1864,7 +1864,7 @@ mod tests {
         // now check what was written
         let mut rtshark = RTSharkBuilder::builder()
             .input_path(out_path.to_str().unwrap())
-            .run()
+            .spawn()
             .unwrap();
 
         // read a packet
@@ -1873,6 +1873,49 @@ mod tests {
             _ => panic!("invalid Output type"),
         }
 
+        rtshark.kill();
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_multiple_spawn_pcap() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let in_path = tmp_dir.path().join("in.pcap");
+        let mut output = std::fs::File::create(&in_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        let out_path = tmp_dir.path().join("out.pcap");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(in_path.to_str().unwrap())
+            .output_path(out_path.to_str().unwrap());
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+        
+        rtshark.kill();
+
+        // retry
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read a packet
+        match rtshark.read().unwrap() {
+            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+        
         rtshark.kill();
 
         /* remove fifo & tempdir */
