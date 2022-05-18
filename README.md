@@ -1,6 +1,6 @@
 # rtshark
 
-A Rust interface to TShark, the famous network protocol analyzer. TShark is a part of [Wireshark](https://www.wireshark.org/) distribution.
+A Rust interface to TShark, the famous network protocol analyzer. [TShark](https://www.wireshark.org/docs/man-pages/tshark.html) is a part of [Wireshark](https://www.wireshark.org/) distribution.
 This crate provides an API to start TShark and analyze it's output.
 It lets you capture packet data from a live network, or read packets from a previously saved capture file, printing a decoded form of those packets.
 TShark's native capture file format is pcapng format, which is also the format used by Wireshark and various other tools.
@@ -17,7 +17,8 @@ let builder = rtshark::RTSharkBuilder::builder()
     .input_path("/tmp/my.pcap");
 
 // Start a new tshark process
-let mut rtshark = builder.spawn().unwrap_or_else(|| panic!("Error starting tshark"));
+let mut rtshark = builder.spawn()
+    .unwrap_or_else(|e| panic!("Error starting tshark: {e}"));
 
 // read packets until the end of the PCAP file
 loop {
