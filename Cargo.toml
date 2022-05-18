@@ -19,6 +19,6 @@ exclude = ["/.github"]
 quick-xml = "0.22"
 
 [dev-dependencies]
-nix = "*"
-tempdir = "*"
-libc = "*"
+nix = "0.24"
+tempdir = "0.3"
+libc = "0.2"
