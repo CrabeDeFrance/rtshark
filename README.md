@@ -4,7 +4,7 @@
 [![Crate](https://img.shields.io/crates/d/rtshark.svg)](https://crates.io/crates/rtshark)
 [![Crate](https://img.shields.io/crates/l/rtshark.svg)](https://crates.io/crates/rtshark)
 [![Documentation](https://docs.rs/rtshark/badge.svg)](https://docs.rs/rtshark/)
-[![dependency status](https://deps.rs/repo/github/CrabeDeFrance/rtshark/status.svg](https://deps.rs/repo/github/CrabeDeFrance/rtshark)
+[![dependency status](https://deps.rs/repo/github/CrabeDeFrance/rtshark/status.svg)](https://deps.rs/repo/github/CrabeDeFrance/rtshark)
 
 A Rust interface to TShark, the famous network protocol analyzer. [TShark](https://www.wireshark.org/docs/man-pages/tshark.html) is a part of [Wireshark](https://www.wireshark.org/) distribution.
 This crate provides an API to start TShark and analyze it's output.
