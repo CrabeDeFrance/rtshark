@@ -42,7 +42,7 @@
 use quick_xml::events::{BytesStart, Event};
 use std::io::{BufRead, BufReader, Result};
 use std::os::unix::process::ExitStatusExt;
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio, ChildStderr};
 
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
 #[derive(Clone)]
@@ -658,13 +658,13 @@ impl<'a> RTSharkBuilderReady<'a> {
             Command::new("tshark")
                 .args(&tshark_params)
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
+                .stderr(Stdio::piped())
                 .spawn()
         } else {
             Command::new("tshark")
                 .args(&tshark_params)
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
+                .stderr(Stdio::piped())
                 .env("PATH", self.env_path)
                 .spawn()
         };
@@ -677,6 +677,7 @@ impl<'a> RTSharkBuilderReady<'a> {
         })?;
 
         let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
+        let stderr = BufReader::new(tshark_child.stderr.take().unwrap());
 
         let reader = quick_xml::Reader::from_reader(buf_reader);
 
@@ -685,7 +686,7 @@ impl<'a> RTSharkBuilderReady<'a> {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        Ok(RTShark::new(tshark_child, reader, filters))
+        Ok(RTShark::new(tshark_child, reader, stderr, filters))
     }
 }
 
@@ -697,6 +698,8 @@ pub struct RTShark {
     process: Option<Child>,
     /// xml parser on TShark piped output
     parser: quick_xml::Reader<BufReader<ChildStdout>>,
+    /// stderr
+    stderr: BufReader<ChildStderr>,
     /// optional metadata blacklist, to prevent storing useless metadata in output packet structure
     filters: Vec<String>,
 }
@@ -706,11 +709,13 @@ impl RTShark {
     fn new(
         process: Child,
         parser: quick_xml::Reader<BufReader<ChildStdout>>,
+        stderr: BufReader<ChildStderr>,
         filters: Vec<String>,
     ) -> Self {
         RTShark {
             process: Some(process),
             parser,
+            stderr,
             filters,
         }
     }
@@ -754,15 +759,36 @@ impl RTShark {
         let msg = parse_xml(xml_reader, &self.filters);
         if let Ok(ref msg) = msg {
             let done = match msg {
-                None => match self.process {
-                    Some(ref mut process) => RTShark::try_wait_has_exited(process),
-                    _ => true,
+                None => {
+                    // Got None == EOF
+                    match self.process {
+                        Some(ref mut process) => RTShark::try_wait_has_exited(process),
+                        _ => true,
+                    }
                 },
                 _ => false,
             };
 
             if done {
                 self.process = None;
+
+                // if process stops, there may be due to an error, we can get it in stderr
+                let mut line = String::new();
+                let mut size = self.stderr.read_line(&mut line)?;
+                // message "Capturing on <interface>"
+                if line.starts_with("Capturing on") {
+                    line.clear();
+                    size = self.stderr.read_line(&mut line)?;
+                }
+                // message "<N> packet(s) captured\n"
+                if line.ends_with("captured\n") {
+                    line.clear();
+                    size = self.stderr.read_line(&mut line)?;    
+                }
+                // if len is != 0 after this filter, this is a real error message
+                if size != 0 {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, line));
+                }
             }
         }
 
@@ -1679,7 +1705,16 @@ mod tests {
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
 
-        // reading from process output should give EOF
+        // reading from process output should give 2 error messages then EOF
+        match rtshark.read() {
+            Err(_) => (),
+            Ok(_) => panic!("invalid Output type"),
+        }
+        match rtshark.read() {
+            Err(_) => (),
+            Ok(_) => panic!("invalid Output type"),
+        }
+
         match rtshark.read().unwrap() {
             None => (),
             _ => panic!("invalid Output type"),
