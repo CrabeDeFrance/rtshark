@@ -6,7 +6,7 @@
 //! [Wireshark]: <https://www.wireshark.org/>
 //! [TShark]: <https://www.wireshark.org/docs/man-pages/tshark.html>
 //!
-//! Many information about TShark usage could also be found here <https://tshark.dev/>
+//! Many information about TShark usage could also be found [here](https://tshark.dev/).
 //!
 //! TShark application must be installed for this crate to work properly.
 //!
@@ -19,19 +19,17 @@
 //! let builder = rtshark::RTSharkBuilder::builder()
 //!     .input_path("/tmp/my.pcap");
 //!
-//! // Start a new tshark process
+//! // Start a new TShark process
 //! let mut rtshark = match builder.spawn() {
 //!     Err(err) =>  { eprintln!("Error running tshark: {err}"); return }
 //!     Ok(rtshark) => rtshark,
 //! };
 //!
 //! // read packets until the end of the PCAP file
-//! loop {
-//!     let packet = match rtshark.read().unwrap() {
-//!         rtshark::Output::Packet(p) => p,
-//!         rtshark::Output::EOF => break
-//!     };
-//!
+//! while let Some(packet) = rtshark.read().unwrap_or_else(|e| {
+//!     eprintln!("Error parsing TShark output: {e}");
+//!     None
+//! }) {
 //!     for layer in packet {
 //!         println!("Layer: {}", layer.name());
 //!         for metadata in layer {
@@ -49,9 +47,9 @@ use std::process::{Child, ChildStdout, Command, Stdio};
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
 #[derive(Clone)]
 pub struct Metadata {
-    /// Name displayed by tshark
+    /// Name displayed by TShark
     name: String,
-    /// Value displayed by tshark, in a human readable format
+    /// Value displayed by TShark, in a human readable format
     value: String,
     /// Both name and value, as displayed by thshark
     display: String,
@@ -61,9 +59,9 @@ pub struct Metadata {
     position: u32,
 }
 
-/// This is one metadata from a given layer of the packet returned by tshark application.
+/// This is one metadata from a given layer of the packet returned by TShark application.
 impl Metadata {
-    /// Create a new metadata. This function is useless for most applications.
+    /// Creates a new metadata. This function is useless for most applications.
     pub fn new(name: String, value: String, display: String, size: u32, position: u32) -> Metadata {
         Metadata {
             name,
@@ -74,7 +72,7 @@ impl Metadata {
         }
     }
 
-    /// Get the name of this metadata. The name is returned by tshark.
+    /// Get the name of this metadata. The name is returned by TShark.
     ///
     /// # Examples
     ///
@@ -86,7 +84,7 @@ impl Metadata {
         self.name.as_str()
     }
 
-    /// Value for this metadata, displayed by tshark, in a human readable format
+    /// Value for this metadata, displayed by TShark, in a human readable format
     ///
     /// # Examples
     ///
@@ -98,7 +96,7 @@ impl Metadata {
         self.value.as_str()
     }
 
-    /// Both name and value, as displayed by thshark
+    /// Both name and value, as displayed by TShark
     ///
     /// # Examples
     ///
@@ -140,15 +138,16 @@ impl Metadata {
 pub struct Layer {
     /// Name of this layer
     name: String,
-    /// Number of this layer for this packet in the stack of layers
+    /// Number of this layer for this packet in the stack of layers. Starts at 0 with "frame" virtual layer.
     index: usize,
     /// List of metadata associated to this layer
     metadata: Vec<Metadata>,
 }
 
 impl Layer {
-    /// Create a new layer. This function is useless for most applications.
-    /// # Examples
+    /// Creates a new layer. This function is useless for most applications.
+    /// 
+    /// # Example
     ///
     /// ```
     /// let ip_layer = rtshark::Layer::new("ip".to_string(), 1);
@@ -160,9 +159,9 @@ impl Layer {
             metadata: vec![],
         }
     }
-    /// Retrieve the layer name of this layer object. This name is a protocol name returned by tshark.
+    /// Retrieves the layer name of this layer object. This name is a protocol name returned by TShark.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
@@ -172,9 +171,9 @@ impl Layer {
         self.name.as_str()
     }
 
-    /// Retrieve layer index (number of this layer in the stack of layers).
+    /// Retrieves this layer index (number of this layer in the stack of the packet's layers).
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
@@ -184,9 +183,9 @@ impl Layer {
         self.index
     }
 
-    /// Add a metadata in the list of this layer. This function is useless for most applications.
+    /// Adds a metadata in the list of metadata for this layer. This function is useless for most applications.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
@@ -199,7 +198,7 @@ impl Layer {
 
     /// Get a metadata by its name.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
@@ -216,7 +215,7 @@ impl Layer {
     /// This iterator does not take ownership of returned [Metadata].
     /// This is the opposite of the "into"-iterator which returns owned objects.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
@@ -296,7 +295,7 @@ impl Packet {
         self.layers.last_mut()
     }
 
-    /// Get the layer for the required index. Indexes starts at 0.
+    /// Get the layer for the required index. Indexes start at 0.
     /// # Examples
     ///
     /// ```
@@ -395,9 +394,9 @@ impl Default for Packet {
     }
 }
 
-/// RTSharkBuilder is used to prepares arguments needed to start a tshark instance.
+/// RTSharkBuilder is used to prepare arguments needed to start a TShark instance.
 /// When the mandatory input_path is set, it creates a [RTSharkBuilderReady] object,
-/// which can be used to add more optional parameters or run to create a [RTShark] instance.
+/// which can be used to add more optional parameters before spawning a [RTShark] instance.
 pub struct RTSharkBuilder {}
 
 impl<'a> RTSharkBuilder {
@@ -416,7 +415,7 @@ impl<'a> RTSharkBuilder {
     /// It is possible to use named pipes or stdin (-) here but only with certain (not compressed) capture file formats
     /// (in particular: those that can be read without seeking backwards).
     ///
-    /// ## Example: Prepare an instance of tshark to read a PCAP file
+    /// ## Example: Prepare an instance of TShark to read a PCAP file
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -436,18 +435,18 @@ impl<'a> RTSharkBuilder {
     ///
     /// On Windows systems, pipe names must be of the form "\\pipe\.*pipename*".
     ///
-    /// "TCP@<host>:<port>" causes TShark to attempt to connect to the specified port on the specified host and read pcapng or pcap data.
+    /// "TCP@\<host\>:\<port\>" causes TShark to attempt to connect to the specified port on the specified host and read pcapng or pcap data.
     ///
     /// Data read from pipes must be in standard pcapng or pcap format. Pcapng data must have the same endianness as the capturing host.
     ///
-    /// ## Example: Prepare an instance of tshark to read from a fifo
+    /// ## Example: Prepare an instance of TShark to read from a fifo
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
     ///     .input_path("/tmp/my.fifo")
     ///     .live_capture();
     /// ```
-    /// ## Example: Prepare an instance of tshark to read from a network interface
+    /// ## Example: Prepare an instance of TShark to read from a network interface
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -469,7 +468,7 @@ impl<'a> RTSharkBuilder {
 }
 
 /// RTSharkBuilderReady is an object used to run to create a [RTShark] instance.
-/// It is possible to use it to add more optional parameters before starting a tshark application.
+/// It is possible to use it to add more optional parameters before starting a TShark application.
 #[derive(Clone)]
 pub struct RTSharkBuilderReady<'a> {
     /// path to input source
@@ -480,16 +479,16 @@ pub struct RTSharkBuilderReady<'a> {
     metadata_blacklist: Vec<&'a str>,
     /// capture_filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
     capture_filter: &'a str,
-    /// display filter : expression filter to match before tshark prints a packet
+    /// display filter : expression filter to match before TShark prints a packet
     display_filter: &'a str,
-    /// custom environment path containing tshark application
+    /// custom environment path containing TShark application
     env_path: &'a str,
     /// path to input source
     output_path: &'a str,
 }
 
 impl<'a> RTSharkBuilderReady<'a> {
-    /// Enable -i option of TShark.
+    /// Enables -i option of TShark.
     ///
     /// This option must be set to use network interface or pipe for live packet capture. See input_path() option of [RTSharkBuilder] for more details.
     ///
@@ -505,13 +504,13 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// There are enabled only when using live_capture(). This filter will be ignored if live_capture() is not set.
     ///
     /// Packet capturing filter is performed with the pcap library.
-    /// That library supports specifying a filter expression; packets that don’t match that filter are discarded.
+    /// That library supports specifying a filter expression; packets that don't match that filter are discarded.
     /// The syntax of a capture filter is defined by the pcap library.
-    /// This syntax is different from the tshark filter syntax.
+    /// This syntax is different from the TShark filter syntax.
     ///
     /// More information about libpcap filters here : <https://www.tcpdump.org/manpages/pcap-filter.7.html>
     ///
-    /// ### Example: Prepare an instance of tshark with packet capture filter.
+    /// ### Example: Prepare an instance of TShark with packet capture filter.
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -532,7 +531,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// Packets matching the filter are printed or written to file; packets that the matching packets depend upon (e.g., fragments),
     /// are not printed but are written to file; packets not matching the filter nor depended upon are discarded rather than being printed or written.
     ///
-    /// ### Example: Prepare an instance of tshark with display filter.
+    /// ### Example: Prepare an instance of TShark with display filter.
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -545,13 +544,13 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
-    /// Filter out (blacklist) a list of useless metadata names extracted by tshark,
-    /// to prevent storing them in [Output] packet structure and consume extra memory.
+    /// Filter out (blacklist) a list of useless metadata names extracted by TShark,
+    /// to prevent storing them in [Packet] structure and consume extra memory.
     /// Filtered [Metadata] will not be available in [Packet]'s [Layer].
     /// 
     /// This method can be called multiple times to add more metadata in the blacklist.
     ///
-    /// ### Example: Prepare an instance of tshark with IP source and destination metadata filtered.
+    /// ### Example: Prepare an instance of TShark with IP source and destination metadata filtered.
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -570,7 +569,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// Note that environment variable names are case-insensitive (but case-preserving) on Windows,
     /// and case-sensitive on all other platforms.
     ///
-    /// ### Example: Prepare an instance of tshark when binary is installed in a custom path
+    /// ### Example: Prepare an instance of TShark when binary is installed in a custom path
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -586,7 +585,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// Write raw packet data to outfile or to the standard output if outfile is '-'.
     /// Note : this option provides raw packet data, not text.
     ///
-    /// ### Example: Prepare an instance of tshark to store raw packet data
+    /// ### Example: Prepare an instance of TShark to store raw packet data
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -599,10 +598,10 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
-    /// Starts a new tshark process given the provided parameters, mapped to a new [RTShark] instance.
+    /// Starts a new TShark process given the provided parameters, mapped to a new [RTShark] instance.
     /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found or no read permission...
     /// In other cases (output_path not writable, invalid syntax for pcap_filter or display_filter),
-    /// tshark process will start but will stop a few moments later, leading to a EOF on rtshark.read function.
+    /// TShark process will start but will stop a few moments later, leading to a EOF on rtshark.read function.
     /// # Example
     ///
     /// ```
@@ -630,10 +629,10 @@ impl<'a> RTSharkBuilderReady<'a> {
             "-n",
         ];
 
-        // it would be possible to ask tshark to "mix in" a keylog file
+        // it would be possible to ask TShark to "mix in" a keylog file
         // when opening the pcap file
         // (obtain the keylog file through `SSLKEYLOGFILE=browser_keylog.txt google-chrome` or firefox,
-        // pass it to tshark through "-o ssh.keylog_file:/path/to/keylog")
+        // pass it to TShark through "-o ssh.keylog_file:/path/to/keylog")
         // but we get in flatpak limitations (can only access the file that the user opened
         // due to the sandbox) => better to just mix in the secrets manually and open a single
         // file. this is done through => editcap --inject-secrets tls,/path/to/keylog.txt ~/testtls.pcap ~/outtls.pcapng
@@ -652,8 +651,8 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["-Y", self.display_filter]);
         }
 
-        // piping from tshark, not to load the entire JSON in ram...
-        // this may fail if tshark is not found in path
+        // piping from TShark, not to load the entire JSON in ram...
+        // this may fail if TShark is not found in path
 
         let tshark_child = if self.env_path.is_empty() {
             Command::new("tshark")
@@ -690,21 +689,13 @@ impl<'a> RTSharkBuilderReady<'a> {
     }
 }
 
-/// This output type describes the result of tshark parsing. It could be a newly decoded packet or the end of the packet stream.
-pub enum Output {
-    /// Type returned when a packet was properly decoded
-    Packet(Packet),
-    /// No more packets can be decoded from this stream. This could happen when tshark application dies or when this is the end of the PCAP file.
-    EOF,
-}
-
-/// RTShark structure represents a tshark process.
-/// It allows controlling the tshark process and reading from its [Output].
+/// RTShark structure represents a TShark process.
+/// It allows controlling the TShark process and reading from application's output.
 /// It is created by [RTSharkBuilder].
 pub struct RTShark {
-    /// Contains the tshark process handle, when tshark is running
+    /// Contains the TShark process handle, when TShark is running
     process: Option<Child>,
-    /// xml parser on tshark piped output
+    /// xml parser on TShark piped output
     parser: quick_xml::Reader<BufReader<ChildStdout>>,
     /// optional metadata blacklist, to prevent storing useless metadata in output packet structure
     filters: Vec<String>,
@@ -724,17 +715,19 @@ impl RTShark {
         }
     }
 
-    /// Read a packet from thsark output and map it to the [Output] type.
-    /// Reading packet can be done until [Output::EOF] is returned.
-    /// Once EOF is returned, no more packets can be read from this stream.
-    /// This could happen when tshark application dies or when this is the end of the PCAP file.
+    /// Read a packet from thsark output and map it to the [Packet] type.
+    /// Reading packet can be done until 'None' is returned.
+    /// Once 'None' is returned, no more packets can be read from this stream
+    /// and TShark instance can be dropped.
+    /// This could happen when TShark application dies or when this is the end of the PCAP file.
+    /// 
     /// # Example
     ///
     /// ```
-    /// # // Creates a builder with needed tshark parameters
+    /// # // Creates a builder with needed TShark parameters
     /// # let builder = rtshark::RTSharkBuilder::builder()
     /// #     .input_path("/tmp/my.pcap");
-    /// // Start a new tshark process
+    /// // Start a new TShark process
     /// let mut rtshark = match builder.spawn() {
     ///     Err(err) => { eprintln!("Error running tshark: {err}"); return; }
     ///     Ok(rtshark) => rtshark
@@ -743,23 +736,25 @@ impl RTShark {
     /// // read packets until the end of the PCAP file
     /// loop {
     ///     let packet = match rtshark.read() {
-    ///         Ok(packet) => packet,
+    ///         Ok(p) => p,
     ///         Err(e) => { eprintln!("Got decoding error: {e}"); continue; }
     ///     };
     ///
-    ///     match packet {
-    ///         rtshark::Output::Packet(_packet) => println!("Got a packet"),
-    ///         rtshark::Output::EOF => break,
+    ///     // end of stream
+    ///     if let None = packet {
+    ///         break;
     ///     }
+    /// 
+    ///     println!("Got a packet");
     /// }
     /// ```
-    pub fn read(&mut self) -> Result<Output> {
+    pub fn read(&mut self) -> Result<Option<Packet>> {
         let xml_reader = &mut self.parser;
 
         let msg = parse_xml(xml_reader, &self.filters);
         if let Ok(ref msg) = msg {
             let done = match msg {
-                Output::EOF => match self.process {
+                None => match self.process {
                     Some(ref mut process) => RTShark::try_wait_has_exited(process),
                     _ => true,
                 },
@@ -774,23 +769,24 @@ impl RTShark {
         msg
     }
 
-    /// Kill the running tshark process associated to this rtshark instance.
-    /// Once tshark is killed, there is no way to start it again using this object.
-    /// Any new tshark instance has to be created using RTSharkBuilder.
+    /// Kill the running TShark process associated to this rtshark instance.
+    /// Once TShark is killed, there is no way to start it again using this object.
+    /// Any new TShark instance has to be created using RTSharkBuilder.
+    /// 
     /// # Example
     ///
     /// ```
-    /// // Creates a builder with needed tshark parameters
+    /// // Creates a builder with needed TShark parameters
     /// let builder = rtshark::RTSharkBuilder::builder()
     ///     .input_path("/tmp/my.pcap");
     ///
-    /// // Start a new tshark process
+    /// // Start a new TShark process
     /// let mut rtshark = match builder.spawn() {
     ///     Err(err) => { eprintln!("Error running tshark: {err}"); return; }
     ///     Ok(rtshark) => rtshark
     /// };
     ///
-    /// // kill running tshark process
+    /// // kill running TShark process
     /// rtshark.kill();
     /// ```
 
@@ -940,7 +936,7 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
 fn parse_xml<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
     filters: &[String],
-) -> Result<Output> {
+) -> Result<Option<Packet>> {
     let mut buf = vec![];
     let mut packet = Packet::new();
     let mut store_metadata = false;
@@ -989,14 +985,14 @@ fn parse_xml<B: BufRead>(
                 _ => (),
             },
             Ok(Event::End(ref e)) => match e.name() {
-                b"packet" => return Ok(Output::Packet(packet)),
+                b"packet" => return Ok(Some(packet)),
                 b"proto" => (),
                 b"field" => (),
                 _ => (),
             },
 
             Ok(Event::Eof) => {
-                return Ok(Output::EOF);
+                return Ok(None);
             }
             Err(e) => {
                 return Err(std::io::Error::new(
@@ -1035,7 +1031,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1064,7 +1060,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1086,7 +1082,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1108,7 +1104,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1181,7 +1177,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1203,7 +1199,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1225,7 +1221,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1244,7 +1240,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1286,7 +1282,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1308,7 +1304,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1325,7 +1321,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1342,7 +1338,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec![]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1360,7 +1356,7 @@ mod tests {
 
         let msg = parse_xml(&mut reader, &vec!["ip.src".to_string()]).unwrap();
         let pkt = match msg {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1386,19 +1382,19 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
         match parse_xml(&mut reader, &vec![]).unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("tcp").is_some()),
+            Some(p) => assert!(p.layer_name("tcp").is_some()),
             _ => panic!("invalid Output type"),
         }
         match parse_xml(&mut reader, &vec![]).unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
         match parse_xml(&mut reader, &vec![]).unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("igmp").is_some()),
+            Some(p) => assert!(p.layer_name("igmp").is_some()),
             _ => panic!("invalid Output type"),
         }
         match parse_xml(&mut reader, &vec![]).unwrap() {
-            Output::EOF => (),
+            None => (),
             _ => panic!("invalid Output type"),
         }
     }
@@ -1421,13 +1417,13 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
         loop {
             match rtshark.read().unwrap() {
-                Output::EOF => break,
+                None => break,
                 _ => (),
             }
         }
@@ -1459,7 +1455,7 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1474,7 +1470,7 @@ mod tests {
 
         // we should get EOF since no packet is matching
         match rtshark.read().unwrap() {
-            Output::EOF => (),
+            None => (),
             _ => panic!("invalid Output type"),
         }
 
@@ -1502,7 +1498,7 @@ mod tests {
 
         // read a packet
         let pkt = match rtshark.read().unwrap() {
-            Output::Packet(p) => p,
+            Some(p) => p,
             _ => panic!("invalid Output type"),
         };
 
@@ -1542,7 +1538,7 @@ mod tests {
 
         // get analysis
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1585,7 +1581,7 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1655,7 +1651,7 @@ mod tests {
 
         // reading from process output should give EOF
         match rtshark.read().unwrap() {
-            Output::EOF => (),
+            None => (),
             _ => panic!("invalid Output type"),
         }
 
@@ -1685,7 +1681,7 @@ mod tests {
 
         // reading from process output should give EOF
         match rtshark.read().unwrap() {
-            Output::EOF => (),
+            None => (),
             _ => panic!("invalid Output type"),
         }
     }
@@ -1720,12 +1716,12 @@ mod tests {
 
         // get analysis
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
         match rtshark.read().unwrap() {
-            Output::EOF => (),
+            None => (),
             _ => panic!("invalid Output type"),
         }
 
@@ -1734,7 +1730,7 @@ mod tests {
 
         // reading from process output should give EOF
         match rtshark.read().unwrap() {
-            Output::EOF => (),
+            None => (),
             _ => panic!("invalid Output type"),
         }
 
@@ -1793,13 +1789,13 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
         loop {
             match rtshark.read().unwrap() {
-                Output::EOF => break,
+                None => break,
                 _ => (),
             }
         }
@@ -1816,7 +1812,7 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1855,7 +1851,7 @@ mod tests {
 
         // get analysis
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1873,7 +1869,7 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1905,7 +1901,7 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
         
@@ -1916,7 +1912,7 @@ mod tests {
 
         // read a packet
         match rtshark.read().unwrap() {
-            Output::Packet(p) => assert!(p.layer_name("udp").is_some()),
+            Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
         
