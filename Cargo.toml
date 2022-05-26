@@ -16,7 +16,7 @@ exclude = ["/.github"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-quick-xml = "0.22"
+quick-xml = "0.23"
 
 [dev-dependencies]
 nix = "0.24"
