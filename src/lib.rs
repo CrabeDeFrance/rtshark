@@ -50,6 +50,8 @@ pub struct Metadata {
     /// Name displayed by TShark
     name: String,
     /// Value displayed by TShark, in a human readable format
+    /// It uses pyshark-like algorithm to display the best 'value' :
+    /// it looks for "show" first, then "value", finally "showname"
     value: String,
     /// Both name and value, as displayed by thshark
     display: String,
@@ -84,7 +86,9 @@ impl Metadata {
         self.name.as_str()
     }
 
-    /// Value for this metadata, displayed by TShark, in a human readable format
+    /// Value for this metadata, displayed by TShark, in a human readable format.
+    /// It uses pyshark-like algorithm to display the best 'value' :
+    /// it looks for "show" first, then "value", finally "showname".
     ///
     /// # Examples
     ///
@@ -936,7 +940,28 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
         return Ok(None);
     }
 
-    let value = rtshark_attr_by_name(tag, b"show")?;
+    // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field 
+    // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+    // try first "show", then "value", finally "showname"
+    let value = match rtshark_attr_by_name(tag, b"show") {
+        Ok(value) => Ok(value),
+        Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => 
+        {
+            match rtshark_attr_by_name(tag, b"value") {
+                Ok(value) => Ok(value),
+                Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => 
+                {
+                    if let Ok(value) = rtshark_attr_by_name(tag, b"showname") {
+                        Ok(value)
+                    } else {
+                        Err(err)
+                    }
+                }
+                Err(err) => Err(err)
+            }
+        }
+        Err(err) => Err(err)
+    }?;
 
     let mut metadata = Metadata {
         name,
@@ -1159,12 +1184,60 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_missing_mandatory_show() {
+    fn test_parse_missing_show_attribute() {
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field 
+        // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+        // try first "show", then "value", finally "showname"
+        
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="icmp">
+           <field name="data" value="0a" showname="data: a0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let pkt = parse_xml(&mut reader, &vec![]).unwrap().unwrap();
+
+        let icmp = pkt.layer_name("icmp").unwrap();
+        let data = icmp.metadata("data").unwrap();
+        assert!(data.value().eq("0a"));
+    }
+
+    #[test]
+    fn test_parse_missing_show_and_value_attributes() {
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field 
+        // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+        // try first "show", then "value", finally "showname"
+
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="icmp">
+           <field name="data" showname="data: a0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let pkt = parse_xml(&mut reader, &vec![]).unwrap().unwrap();
+
+        let icmp = pkt.layer_name("icmp").unwrap();
+        let data = icmp.metadata("data").unwrap();
+        assert!(data.value().eq("data: a0"));
+    }
+
+    #[test]
+    fn test_parse_missing_any_show() {
         let xml = r#"
         <pdml>
          <packet>
           <proto name="frame">
-          <field name="frame.time" pos="0" size="0" showname="test time display"/>
+          <field name="frame.time" pos="0" size="0"/>
           </proto>
          </packet>
         </pdml>"#;
