@@ -1779,19 +1779,14 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
 
         // reading from process output should give 2 error messages then EOF
-        match rtshark.read() {
-            Err(_) => (),
-            Ok(_) => panic!("invalid Output type"),
+        loop {
+            match rtshark.read() {
+                Ok(e) if e.is_some() => panic!("invalid Output type"),
+                Ok(e) if e.is_none() => break,
+                _ => ()
+            }
         }
-        match rtshark.read() {
-            Err(_) => (),
-            Ok(_) => panic!("invalid Output type"),
-        }
-
-        match rtshark.read().unwrap() {
-            None => (),
-            _ => panic!("invalid Output type"),
-        }
+        
     }
 
     #[test]
