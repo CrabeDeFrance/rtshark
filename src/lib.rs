@@ -429,7 +429,7 @@ impl<'a> RTSharkBuilder {
     /// Network interface names should match one of the names listed in "tshark -D" (described above);
     /// a number, as reported by "tshark -D", can also be used.
     ///
-    /// If you’re using UNIX, "netstat -i", "ifconfig -a" or "ip link" might also work to list interface names,
+    /// If you're using UNIX, "netstat -i", "ifconfig -a" or "ip link" might also work to list interface names,
     /// although not all versions of UNIX support the -a option to ifconfig.
     /// Pipe names should be the name of a FIFO (named pipe).
     ///
@@ -927,7 +927,7 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
     let name = rtshark_attr_by_name(tag, b"name")?;
 
     // skip "_ws.expert" info, not related to a packet metadata
-    if name.starts_with("_ws.") {
+    if name.is_empty() || name.starts_with("_ws.") {
         return Ok(None);
     }
 
