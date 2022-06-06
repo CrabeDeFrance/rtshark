@@ -42,7 +42,7 @@
 use quick_xml::events::{BytesStart, Event};
 use std::io::{BufRead, BufReader, Result};
 use std::os::unix::process::ExitStatusExt;
-use std::process::{Child, ChildStdout, Command, Stdio, ChildStderr};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
 #[derive(Clone)]
@@ -150,7 +150,7 @@ pub struct Layer {
 
 impl Layer {
     /// Creates a new layer. This function is useless for most applications.
-    /// 
+    ///
     /// # Example
     ///
     /// ```
@@ -462,7 +462,7 @@ impl<'a> RTSharkBuilder {
         RTSharkBuilderReady::<'a> {
             input_path: path,
             live_capture: false,
-            metadata_blacklist: vec!(),
+            metadata_blacklist: vec![],
             capture_filter: "",
             display_filter: "",
             env_path: "",
@@ -551,7 +551,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// Filter out (blacklist) a list of useless metadata names extracted by TShark,
     /// to prevent storing them in [Packet] structure and consume extra memory.
     /// Filtered [Metadata] will not be available in [Packet]'s [Layer].
-    /// 
+    ///
     /// This method can be called multiple times to add more metadata in the blacklist.
     ///
     /// ### Example: Prepare an instance of TShark with IP source and destination metadata filtered.
@@ -729,7 +729,7 @@ impl RTShark {
     /// Once 'None' is returned, no more packets can be read from this stream
     /// and TShark instance can be dropped.
     /// This could happen when TShark application dies or when this is the end of the PCAP file.
-    /// 
+    ///
     /// # Example
     ///
     /// ```
@@ -753,7 +753,7 @@ impl RTShark {
     ///     if let None = packet {
     ///         break;
     ///     }
-    /// 
+    ///
     ///     println!("Got a packet");
     /// }
     /// ```
@@ -769,7 +769,7 @@ impl RTShark {
                         Some(ref mut process) => RTShark::try_wait_has_exited(process),
                         _ => true,
                     }
-                },
+                }
                 _ => false,
             };
 
@@ -787,7 +787,7 @@ impl RTShark {
                 // message "<N> packet(s) captured\n"
                 if line.ends_with("captured\n") {
                     line.clear();
-                    size = self.stderr.read_line(&mut line)?;    
+                    size = self.stderr.read_line(&mut line)?;
                 }
                 // if len is != 0 after this filter, this is a real error message
                 if size != 0 {
@@ -802,7 +802,7 @@ impl RTShark {
     /// Kill the running TShark process associated to this rtshark instance.
     /// Once TShark is killed, there is no way to start it again using this object.
     /// Any new TShark instance has to be created using RTSharkBuilder.
-    /// 
+    ///
     /// # Example
     ///
     /// ```
@@ -940,27 +940,25 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
         return Ok(None);
     }
 
-    // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field 
+    // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
     // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
     // try first "show", then "value", finally "showname"
     let value = match rtshark_attr_by_name(tag, b"show") {
         Ok(value) => Ok(value),
-        Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => 
-        {
+        Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => {
             match rtshark_attr_by_name(tag, b"value") {
                 Ok(value) => Ok(value),
-                Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => 
-                {
+                Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => {
                     if let Ok(value) = rtshark_attr_by_name(tag, b"showname") {
                         Ok(value)
                     } else {
                         Err(err)
                     }
                 }
-                Err(err) => Err(err)
+                Err(err) => Err(err),
             }
         }
-        Err(err) => Err(err)
+        Err(err) => Err(err),
     }?;
 
     let mut metadata = Metadata {
@@ -1185,10 +1183,10 @@ mod tests {
 
     #[test]
     fn test_parse_missing_show_attribute() {
-        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field 
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
         // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
         // try first "show", then "value", finally "showname"
-        
+
         let xml = r#"
         <pdml>
          <packet>
@@ -1209,7 +1207,7 @@ mod tests {
 
     #[test]
     fn test_parse_missing_show_and_value_attributes() {
-        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field 
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
         // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
         // try first "show", then "value", finally "showname"
 
@@ -1783,10 +1781,9 @@ mod tests {
             match rtshark.read() {
                 Ok(e) if e.is_some() => panic!("invalid Output type"),
                 Ok(e) if e.is_none() => break,
-                _ => ()
+                _ => (),
             }
         }
-        
     }
 
     #[test]
@@ -2007,7 +2004,7 @@ mod tests {
             Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        
+
         rtshark.kill();
 
         // retry
@@ -2018,7 +2015,7 @@ mod tests {
             Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        
+
         rtshark.kill();
 
         /* remove fifo & tempdir */
