@@ -41,6 +41,7 @@
 
 use quick_xml::events::{BytesStart, Event};
 use std::io::{BufRead, BufReader, Result};
+#[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 
@@ -868,7 +869,12 @@ impl RTShark {
 
     /// Check if process is stopped, get the exit code and return true if stopped.
     fn try_wait_has_exited(child: &mut Child) -> bool {
-        matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some())
+        #[cfg(target_family = "unix")]
+        let value =
+            matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some());
+        #[cfg(target_family = "windows")]
+        let value = matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() );
+        value
     }
 }
 
@@ -1062,6 +1068,8 @@ fn parse_xml<B: BufRead>(
 mod tests {
 
     use std::io::Write;
+
+    use serial_test::serial;
 
     use super::*;
 
@@ -1608,6 +1616,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_fifo() {
         let pcap = include_bytes!("test.pcap");
@@ -1649,6 +1658,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_pcap_filter_pcap() {
         let pcap = include_bytes!("test.pcap");
@@ -1692,6 +1702,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_drop() {
         // create temp dir
@@ -1722,6 +1733,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_killed() {
         // create temp dir
@@ -1756,6 +1768,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_fifo_lost() {
         // create temp dir
@@ -1786,6 +1799,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_fifo_opened_then_closed() {
         let pcap = include_bytes!("test.pcap");
@@ -1852,7 +1866,17 @@ mod tests {
     }
 
     #[test]
+    #[serial] // Run test serially since its modifying env PATH
     fn test_rtshark_tshark_missing() {
+        // clear PATH env (if tshark is already in PATH)
+        let path = match std::env::var("PATH") {
+            Ok(v) => {
+                std::env::remove_var("PATH");
+                Some(v)
+            }
+            Err(_) => None,
+        };
+
         // start tshark on a missing fifo
         let builder = RTSharkBuilder::builder()
             .input_path("/missing/rtshark/fifo")
@@ -1860,6 +1884,11 @@ mod tests {
             .env_path("/invalid/path");
 
         let ret = builder.spawn();
+
+        // restore PATH env (for other tests)
+        if let Some(v) = path {
+            std::env::set_var("PATH", v);
+        }
 
         match ret {
             Ok(_) => panic!("We can't start if tshark is missing"),
@@ -1921,6 +1950,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_fifo_output_pcap() {
         let pcap = include_bytes!("test.pcap");
@@ -1978,8 +2008,8 @@ mod tests {
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
     }
-
     #[test]
+    #[serial] // Run test serially to limit check to multiple spawns in test
     fn test_rtshark_multiple_spawn_pcap() {
         let pcap = include_bytes!("test.pcap");
 
