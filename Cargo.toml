@@ -19,6 +19,9 @@ exclude = ["/.github"]
 quick-xml = "0.23"
 
 [dev-dependencies]
-nix = "0.24"
 tempdir = "0.3"
 libc = "0.2"
+serial_test="0.8"
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = "0.24"
