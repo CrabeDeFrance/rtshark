@@ -1,3 +1,9 @@
+# 2.3.1 (2022-08-14)
+
+## Fixes 
+
+- Update Cargo dependencies
+
 # 2.3.0 (2022-08-14)
 
 ## Features 
