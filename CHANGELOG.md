@@ -1,3 +1,9 @@
+# 2.3.0 (2022-08-14)
+
+## Features 
+
+- Add Windows support (Thanks to Preet Dua "Prabhpreet")
+
 # 2.2.0 (2022-06-06)
 
 ## Fixes
