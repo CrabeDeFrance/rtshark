@@ -1,0 +1,29 @@
+name: Windows compilation and tests 
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: windows-2019 
+
+    steps:
+    - name: Install TShark
+      shell: powershell
+      run: choco install -y wireshark
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --verbose
+    - name: Check where is thshark
+      run: dir "C:\Program Files\Wireshark"
+#    - name: Run tests
+#      run: |
+#        echo "C:\Program Files\Wireshark" >> $GITHUB_PATH
+#        cargo test --verbose
