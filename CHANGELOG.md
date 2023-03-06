@@ -1,3 +1,13 @@
+# 2.4.0 (2023-03-06)
+
+## Features 
+
+- Add decode-as option (Thanks to "horaih")
+
+## Fixes
+
+- Update dependencies to their latest version
+
 # 2.3.1 (2022-08-14)
 
 ## Fixes 
