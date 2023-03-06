@@ -931,7 +931,7 @@ fn rtshark_attr_by_name<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<String> {
                 format!("Error decoding xml attribute: {e:?}"),
             )
         })?;
-        if attr.key == key {
+        if attr.key.as_ref() == key {
             let value = std::str::from_utf8(&attr.value).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -1034,8 +1034,8 @@ fn parse_xml<B: BufRead>(
     let mut store_metadata = false;
 
     loop {
-        match xml_reader.read_event(&mut buf) {
-            Ok(Event::Start(ref e)) => match e.name() {
+        match xml_reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => match e.name().as_ref() {
                 b"packet" => (),
                 b"proto" => {
                     let proto = rtshark_attr_by_name(e, b"name")?;
@@ -1061,7 +1061,7 @@ fn parse_xml<B: BufRead>(
                 }
                 _ => (),
             },
-            Ok(Event::Empty(ref e)) => match e.name() {
+            Ok(Event::Empty(ref e)) => match e.name().as_ref() {
                 b"packet" => (),
                 b"proto" => (),
                 b"field" => {
@@ -1076,7 +1076,7 @@ fn parse_xml<B: BufRead>(
                 }
                 _ => (),
             },
-            Ok(Event::End(ref e)) => match e.name() {
+            Ok(Event::End(ref e)) => match e.name().as_ref() {
                 b"packet" => return Ok(Some(packet)),
                 b"proto" => (),
                 b"field" => (),
