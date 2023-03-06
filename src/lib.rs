@@ -817,6 +817,11 @@ impl RTShark {
                     line.clear();
                     size = self.stderr.read_line(&mut line)?;
                 }
+                // message "[Main MESSAGE] -- Capture started.\n"
+                if line.ends_with("Capture started.\n") {
+                    line.clear();
+                    size = self.stderr.read_line(&mut line)?;
+                }
                 // if len is != 0 after this filter, this is a real error message
                 if size != 0 {
                     return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, line));
