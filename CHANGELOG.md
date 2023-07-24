@@ -1,3 +1,15 @@
+# 2.5.0 (2023-07-24)
+
+## Features 
+
+- Add new API timestamp_micros (Thanks to "vvv")
+Similar to Packet.sniff_time in pyshark.
+
+## Fixes
+
+- Update dependencies to their latest version
+And fix patch level for chrono due to a security issue before 0.4.20.
+
 # 2.4.0 (2023-03-06)
 
 ## Features 
