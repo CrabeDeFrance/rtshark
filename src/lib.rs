@@ -267,9 +267,13 @@ impl IntoIterator for Layer {
 }
 
 /// The [Packet] object represents a network packet, a formatted unit of data carried by a packet-switched network. It may contain multiple [Layer].
+#[derive(Default)]
 pub struct Packet {
     /// Stack of layers for a packet
     layers: Vec<Layer>,
+    /// Packet capture timestamp --- the number of non-leap-microseconds since
+    /// January 1, 1970 UTC
+    timestamp_micros: Option<i64>,
 }
 
 impl Packet {
@@ -280,7 +284,13 @@ impl Packet {
     /// let packet = rtshark::Packet::new();
     /// ```
     pub fn new() -> Self {
-        Packet { layers: vec![] }
+        Self::default()
+    }
+
+    /// Returns this packet's capture time as the number of non-leap-microseconds since
+    /// January 1, 1970 UTC.
+    pub fn timestamp_micros(&self) -> Option<i64> {
+        self.timestamp_micros
     }
 
     /// Push a new layer at the end of the layer stack. This function is useless for most applications.
@@ -390,12 +400,6 @@ impl IntoIterator for Packet {
     /// ```
     fn into_iter(self) -> Self::IntoIter {
         self.layers.into_iter()
-    }
-}
-
-impl Default for Packet {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -638,7 +642,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     pub fn spawn(&self) -> Result<RTShark> {
         // test if input file exists
         if !self.live_capture {
-            std::fs::metadata(&self.input_path).map_err(|e| match e.kind() {
+            std::fs::metadata(self.input_path).map_err(|e| match e.kind() {
                 std::io::ErrorKind::NotFound => std::io::Error::new(
                     e.kind(),
                     format!("Unable to find {}: {}", &self.input_path, e),
@@ -922,7 +926,7 @@ impl Drop for RTShark {
 }
 
 /// search for an attribute of a XML tag using its name and return a string.
-fn rtshark_attr_by_name<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<String> {
+fn rtshark_attr_by_name(tag: &BytesStart, key: &[u8]) -> Result<String> {
     let attrs = &mut tag.attributes();
     for attr in attrs {
         let attr = attr.map_err(|e| {
@@ -956,7 +960,7 @@ fn rtshark_attr_by_name<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<String> {
 }
 
 /// search for an attribute of a XML tag using its name and return a u32.
-fn rtshark_attr_by_name_u32<'a>(tag: &'a BytesStart, key: &[u8]) -> Result<u32> {
+fn rtshark_attr_by_name_u32(tag: &BytesStart, key: &[u8]) -> Result<u32> {
     match rtshark_attr_by_name(tag, key) {
         Err(e) => Err(e),
         Ok(v) => v.parse::<u32>().map_err(|e| {
@@ -1031,7 +1035,15 @@ fn parse_xml<B: BufRead>(
 ) -> Result<Option<Packet>> {
     let mut buf = vec![];
     let mut packet = Packet::new();
-    let mut store_metadata = false;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Mode {
+        SkipMetadata,
+        StoreMetadata,
+        // Look for "timestamp" field in the proto with name="geninfo"
+        GenInfo,
+    }
+    let mut mode = Mode::SkipMetadata;
 
     loop {
         match xml_reader.read_event_into(&mut buf) {
@@ -1039,21 +1051,19 @@ fn parse_xml<B: BufRead>(
                 b"packet" => (),
                 b"proto" => {
                     let proto = rtshark_attr_by_name(e, b"name")?;
-
-                    if ["fake-field-wrapper", "geninfo"].contains(&proto.as_str()) {
-                        store_metadata = false;
-                        continue;
-                    } else {
-                        store_metadata = true;
+                    match proto.as_str() {
+                        "geninfo" => mode = Mode::GenInfo,
+                        "fake-field-wrapper" => mode = Mode::SkipMetadata,
+                        _ => {
+                            mode = Mode::StoreMetadata;
+                            packet.push(proto);
+                        }
                     }
-
-                    packet.push(proto);
                 }
                 b"field" => {
-                    if !store_metadata {
+                    if mode != Mode::StoreMetadata {
                         continue;
                     }
-
                     let metadata = rtshark_build_metadata(e, filters)?;
                     if let Some(metadata) = metadata {
                         packet.last_layer_mut().unwrap().add(metadata);
@@ -1061,18 +1071,39 @@ fn parse_xml<B: BufRead>(
                 }
                 _ => (),
             },
-            Ok(Event::Empty(ref e)) => match e.name().as_ref() {
-                b"packet" => (),
-                b"proto" => (),
-                b"field" => {
-                    if !store_metadata {
-                        continue;
-                    }
-
+            Ok(Event::Empty(ref e)) => match (e.name().as_ref(), mode) {
+                (b"packet", _) => (),
+                (b"proto", _) => (),
+                (b"field", Mode::StoreMetadata) => {
                     let metadata = rtshark_build_metadata(e, filters)?;
                     if let Some(metadata) = metadata {
                         packet.last_layer_mut().unwrap().add(metadata);
                     }
+                }
+                (b"field", Mode::GenInfo) => {
+                    use chrono::{LocalResult, TimeZone as _, Utc};
+
+                    let name = rtshark_attr_by_name(e, b"name")?;
+                    if name != "timestamp" {
+                        continue;
+                    }
+                    let value = rtshark_attr_by_name(e, b"value")?;
+
+                    let bad_timestamp = || {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("Error decoding timestamp: {value}"),
+                        )
+                    };
+
+                    let (secs, nsecs) = value.split_once('.').ok_or_else(bad_timestamp)?;
+                    let secs = secs.parse().map_err(|_| bad_timestamp())?;
+                    let nsecs = nsecs.parse().map_err(|_| bad_timestamp())?;
+
+                    let LocalResult::Single(dt) = Utc.timestamp_opt(secs, nsecs) else {
+                            return Err(bad_timestamp());
+                        };
+                    packet.timestamp_micros.replace(dt.timestamp_micros());
                 }
                 _ => (),
             },
