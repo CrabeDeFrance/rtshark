@@ -675,8 +675,15 @@ impl<'a> RTSharkBuilderReady<'a> {
         let mut tshark_params = vec![
             if !self.live_capture { "-r" } else { "-i" },
             self.input_path,
+            // Packet Details Markup Language, an XML-based format for the details of a decoded packet. 
+            // This information is equivalent to the packet details printed with the -V option. 
             "-Tpdml",
+            // Disable network object name resolution (such as hostname, TCP and UDP port names)
             "-n",
+            // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and, 
+            // if packet information isn’t being displayed to the terminal, writes a continuous count of packets captured to the standard output.
+            // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed. 
+            "-Q",
         ];
 
         tshark_params.extend(&["-l"]);
@@ -831,28 +838,8 @@ impl RTShark {
 
                 // if process stops, there may be due to an error, we can get it in stderr
                 let mut line = String::new();
-                let mut size = self.stderr.read_line(&mut line)?;
-                // message "Capturing on <interface>"
-                if line.starts_with("Capturing on") {
-                    line.clear();
-                    size = self.stderr.read_line(&mut line)?;
-                }
-                // message "<N> packet(s) captured\n"
-                if line.ends_with("captured\n") {
-                    line.clear();
-                    size = self.stderr.read_line(&mut line)?;
-                }
-                // message "[Main MESSAGE] -- Capture started.\n"
-                if line.ends_with("Capture started.\n") {
-                    line.clear();
-                    size = self.stderr.read_line(&mut line)?;
-                }
-                // message "[Main MESSAGE] -- File: \"fifo name\"\n"
-                if line.contains(" [Main MESSAGE] -- File: \"") {
-                    line.clear();
-                    size = self.stderr.read_line(&mut line)?;
-                }
-                // if len is != 0 after this filter, this is a real error message
+                let size = self.stderr.read_line(&mut line)?;
+                // if len is != 0 there is an error message
                 if size != 0 {
                     return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, line));
                 }
