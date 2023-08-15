@@ -46,7 +46,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
-#[derive(Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Metadata {
     /// Name displayed by TShark
     name: String,
@@ -139,7 +139,7 @@ impl Metadata {
 }
 
 /// A layer is a protocol in the protocol stack of a packet (example: IP layer). It may contain multiple [Metadata].
-#[derive(Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Layer {
     /// Name of this layer
     name: String,
@@ -267,7 +267,7 @@ impl IntoIterator for Layer {
 }
 
 /// The [Packet] object represents a network packet, a formatted unit of data carried by a packet-switched network. It may contain multiple [Layer].
-#[derive(Default)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Packet {
     /// Stack of layers for a packet
     layers: Vec<Layer>,
