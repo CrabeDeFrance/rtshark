@@ -1,8 +1,8 @@
-# Unreleased
+# 2.6.0 (2023-08-15)
 
 ## Features
 
-- Allow specifying the key log file that enables decryption of TLS traffic
+- Allow specifying the key log file that enables decryption of TLS traffic (Thanks to "vvv")
 
 # 2.5.0 (2023-07-24)
 
