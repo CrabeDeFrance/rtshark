@@ -46,7 +46,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
-#[derive(Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Metadata {
     /// Name displayed by TShark
     name: String,
@@ -139,7 +139,7 @@ impl Metadata {
 }
 
 /// A layer is a protocol in the protocol stack of a packet (example: IP layer). It may contain multiple [Metadata].
-#[derive(Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Layer {
     /// Name of this layer
     name: String,
@@ -267,7 +267,7 @@ impl IntoIterator for Layer {
 }
 
 /// The [Packet] object represents a network packet, a formatted unit of data carried by a packet-switched network. It may contain multiple [Layer].
-#[derive(Default)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Packet {
     /// Stack of layers for a packet
     layers: Vec<Layer>,
@@ -605,7 +605,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///
     /// Note that you can embed the TLS key log file in a capture file:
     ///
-    /// ```
+    /// ```no_compile
     /// editcap --inject-secrets tls,keys.txt in.pcap out-dsb.pcapng
     /// ```
     pub fn keylog_file(&self, path: &'a str) -> Self {
@@ -675,14 +675,14 @@ impl<'a> RTSharkBuilderReady<'a> {
         let mut tshark_params = vec![
             if !self.live_capture { "-r" } else { "-i" },
             self.input_path,
-            // Packet Details Markup Language, an XML-based format for the details of a decoded packet. 
-            // This information is equivalent to the packet details printed with the -V option. 
+            // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
+            // This information is equivalent to the packet details printed with the -V option.
             "-Tpdml",
             // Disable network object name resolution (such as hostname, TCP and UDP port names)
             "-n",
-            // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and, 
+            // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and,
             // if packet information isn’t being displayed to the terminal, writes a continuous count of packets captured to the standard output.
-            // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed. 
+            // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed.
             "-Q",
         ];
 
@@ -2220,6 +2220,75 @@ mod tests {
         rtshark.kill();
 
         /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_tls_keylogfile_pcap() {
+        let pcap = include_bytes!("test_tls.pcap");
+        let keylog = include_bytes!("test_tlskeylogfile.txt");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder().input_path(pcap_path.to_str().unwrap());
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read packets
+        loop {
+            match rtshark.read().unwrap() {
+                None => break,
+                Some(p) => {
+                    // we check there is no visible http2
+                    assert!(p.layer_name("tcp").is_some());
+                    assert!(p.layer_name("http2").is_none())
+                }
+            }
+        }
+
+        rtshark.kill();
+
+        let keylog_path = tmp_dir.path().join("keylogfile.txt");
+        let mut output = std::fs::File::create(&keylog_path).expect("unable to open file");
+        output.write_all(keylog).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .keylog_file(&keylog_path.as_os_str().to_str().unwrap());
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read packets and search for http2 get
+        let mut http2_get_found = false;
+        loop {
+            match rtshark.read().unwrap() {
+                None => break,
+                Some(p) => {
+                    // we check there is a http2 method GET
+                    assert!(p.layer_name("tcp").is_some());
+                    if let Some(http2) = p.layer_name("http2") {
+                        if let Some(get) = http2.metadata("http2.headers.method") {
+                            if get.value() == "GET" {
+                                http2_get_found = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(http2_get_found);
+
+        rtshark.kill();
+
+        assert!(rtshark.pid().is_none());
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 }
