@@ -1162,7 +1162,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1191,7 +1191,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1213,7 +1213,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1235,7 +1235,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1257,7 +1257,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]);
+        let msg = parse_xml(&mut reader, &[]);
 
         match msg {
             Err(_) => (),
@@ -1282,7 +1282,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = parse_xml(&mut reader, &vec![]).unwrap().unwrap();
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -1306,7 +1306,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = parse_xml(&mut reader, &vec![]).unwrap().unwrap();
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -1326,14 +1326,14 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]);
+        let msg = parse_xml(&mut reader, &[]);
         match msg {
             Err(_) => (),
             _ => panic!("invalid result"),
         }
     }
 
-    const XML_TCP: &'static str = r#"
+    const XML_TCP: &str = r#"
     <pdml>
      <packet>
       <proto name="frame">
@@ -1356,7 +1356,7 @@ mod tests {
     fn test_access_packet_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1378,7 +1378,7 @@ mod tests {
     fn test_access_packet_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1400,7 +1400,7 @@ mod tests {
     fn test_access_layer_index() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1419,7 +1419,7 @@ mod tests {
     fn test_access_layer_name() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1461,7 +1461,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1483,7 +1483,7 @@ mod tests {
     fn test_access_layer_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1500,7 +1500,7 @@ mod tests {
     fn test_access_layer_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1517,7 +1517,7 @@ mod tests {
     fn test_access_layer_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1535,7 +1535,7 @@ mod tests {
     fn test_parser_filter_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec!["ip.src".to_string()]).unwrap();
+        let msg = parse_xml(&mut reader, &["ip.src".to_string()]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1562,19 +1562,19 @@ mod tests {
         </pdml>"#;
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             Some(p) => assert!(p.layer_name("tcp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             Some(p) => assert!(p.layer_name("igmp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             None => (),
             _ => panic!("invalid Output type"),
         }
@@ -1605,7 +1605,7 @@ mod tests {
         loop {
             match rtshark.read().unwrap() {
                 None => break,
-                _ => (),
+                Some(_) => todo!(),
             }
         }
 
@@ -1853,7 +1853,7 @@ mod tests {
         };
 
         // verify tshark is stopped
-        assert!(std::path::Path::new(&format!("/proc/{pid}")).exists() == false);
+        assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
 
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
@@ -2064,7 +2064,7 @@ mod tests {
         loop {
             match rtshark.read().unwrap() {
                 None => break,
-                _ => (),
+                Some(_) => todo!(),
             }
         }
 
@@ -2261,7 +2261,7 @@ mod tests {
 
         let builder = RTSharkBuilder::builder()
             .input_path(pcap_path.to_str().unwrap())
-            .keylog_file(&keylog_path.as_os_str().to_str().unwrap());
+            .keylog_file(keylog_path.as_os_str().to_str().unwrap());
 
         let mut rtshark = builder.spawn().unwrap();
 
