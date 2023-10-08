@@ -23,7 +23,10 @@ jobs:
       run: cargo build --verbose
     - name: Check where is thshark
       run: dir "C:\Program Files\Wireshark"
-#    - name: Run tests
-#      run: |
-#        echo "C:\Program Files\Wireshark" >> $GITHUB_PATH
-#        cargo test --verbose
+    - name: Run doc tests
+      run: cargo test --doc
+    # unit test currently fails with this error : `Err` value: Custom { kind: NotFound, error: "Unable to find tshark: program not found" }
+    #- name: Run unit tests
+    #  run: |
+    #    echo "C:\Program Files\Wireshark" >> $GITHUB_PATH
+    #    cargo test --lib -- --test-threads=1

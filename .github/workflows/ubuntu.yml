@@ -20,5 +20,7 @@ jobs:
       run: cargo build
     - name: Install tshark
       run: sudo apt-get install -y tshark
-    - name: Run tests
-      run: cargo test
+    - name: Run doc tests
+      run: cargo test --doc
+    - name: Run unit tests
+      run: cargo test --lib -- --test-threads=1
