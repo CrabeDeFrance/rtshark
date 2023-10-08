@@ -1,3 +1,10 @@
+# 2.7.0 (2023-10-08)
+
+## Features
+
+- New API metadata_whitelist (Thanks to "eli").
+This improves a lot TShark speed.
+
 # 2.6.0 (2023-08-15)
 
 ## Features
