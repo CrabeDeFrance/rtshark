@@ -40,7 +40,7 @@
 //! ```
 
 use quick_xml::events::{BytesStart, Event};
-use std::io::{BufRead, BufReader, Result};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
 #[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
@@ -468,6 +468,7 @@ impl<'a> RTSharkBuilder {
             input_path: path,
             live_capture: false,
             metadata_blacklist: vec![],
+            metadata_whitelist: None,
             capture_filter: "",
             display_filter: "",
             env_path: "",
@@ -487,7 +488,9 @@ pub struct RTSharkBuilderReady<'a> {
     /// activate live streaming (fifo, network interface). This activates -i option instread of -r.
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
-    metadata_blacklist: Vec<&'a str>,
+    metadata_blacklist: Vec<String>,
+    /// filter out (whitelist) useless metadata names, to prevent TShark to put them in PDML report
+    metadata_whitelist: Option<Vec<String>>,
     /// capture_filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
     capture_filter: &'a str,
     /// display filter : expression filter to match before TShark prints a packet
@@ -575,7 +578,35 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// ```
     pub fn metadata_blacklist(&self, blacklist: &'a str) -> Self {
         let mut new = self.clone();
-        new.metadata_blacklist.push(blacklist);
+        new.metadata_blacklist.push(blacklist.to_owned());
+        new
+    }
+
+    /// Filter out (whitelist) a list of needed metadata names to be extracted by TShark,
+    /// to prevent it to extract and put everything in the PDML report.
+    /// There is a huge performance gain for TShark if the whitelist is small.
+    /// Filtered [Metadata] will not be available in [Packet]'s [Layer].
+    ///
+    /// This method can be called multiple times to add more metadata in the whitelist.
+    ///
+    /// In whitelist mode, TShark PDML does not encapsulate fields in a <proto> tag anymore
+    /// so it is not possible to build all packet's layers.
+    ///
+    /// ### Example: Prepare an instance of TShark to print only IP source and destination metadata.
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .metadata_whitelist("ip.src")
+    ///     .metadata_whitelist("ip.dst");
+    /// ```
+    pub fn metadata_whitelist(&self, whitelist: &'a str) -> Self {
+        let mut new = self.clone();
+        if let Some(wl) = &mut new.metadata_whitelist {
+            wl.push(whitelist.to_owned());
+        } else {
+            new.metadata_whitelist = Some(vec![whitelist.to_owned()]);
+        }
         new
     }
 
@@ -714,6 +745,11 @@ impl<'a> RTSharkBuilderReady<'a> {
         if let Some(ref keylog) = opt_keylog {
             tshark_params.extend(&["-o", keylog]);
         }
+        if let Some(wl) = &self.metadata_whitelist {
+            for whitelist_elem in wl {
+                tshark_params.extend(&["-e", whitelist_elem]);
+            }
+        }
 
         // piping from TShark, not to load the entire JSON in ram...
         // this may fail if TShark is not found in path
@@ -745,12 +781,12 @@ impl<'a> RTSharkBuilderReady<'a> {
 
         let reader = quick_xml::Reader::from_reader(buf_reader);
 
-        let filters: Vec<String> = self
-            .metadata_blacklist
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        Ok(RTShark::new(tshark_child, reader, stderr, filters))
+        Ok(RTShark::new(
+            tshark_child,
+            reader,
+            stderr,
+            self.metadata_blacklist.clone(),
+        ))
     }
 }
 
@@ -1036,6 +1072,40 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
     Ok(Some(metadata))
 }
 
+/// Process specific metadata in geninfo to fill the packet structure
+fn geninfo_metadata(tag: &BytesStart, packet: &mut Packet) -> Result<()> {
+    use chrono::{LocalResult, TimeZone as _, Utc};
+
+    let name = rtshark_attr_by_name(tag, b"name")?;
+    if name != "timestamp" {
+        return Ok(());
+    }
+    let value = rtshark_attr_by_name(tag, b"value")?;
+
+    let bad_timestamp = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Error decoding timestamp: {value}"),
+        )
+    };
+
+    let (secs, nsecs) = value.split_once('.').ok_or_else(bad_timestamp)?;
+    let secs = secs.parse().map_err(|_| bad_timestamp())?;
+    let nsecs = nsecs.parse().map_err(|_| bad_timestamp())?;
+
+    let LocalResult::Single(dt) = Utc.timestamp_opt(secs, nsecs) else {
+        return Err(bad_timestamp());
+    };
+    packet.timestamp_micros.replace(dt.timestamp_micros());
+
+    Ok(())
+}
+
+/// list of protocols in tshark output but not in packet data
+fn ignored_protocols(name: &str) -> bool {
+    name.eq("geninfo") || name.eq("fake-field-wrapper")
+}
+
 /// Main parser function used to decode XML output from tshark
 fn parse_xml<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
@@ -1044,81 +1114,96 @@ fn parse_xml<B: BufRead>(
     let mut buf = vec![];
     let mut packet = Packet::new();
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum Mode {
-        SkipMetadata,
-        StoreMetadata,
-        // Look for "timestamp" field in the proto with name="geninfo"
-        GenInfo,
-    }
-    let mut mode = Mode::SkipMetadata;
+    let mut protoname = None;
+
+    // tshark pdml is something like : (default mode)
+    //
+    // <!-- You can find pdml2html.xsl in /usr/share/wireshark or at https://gitlab.com/wireshark/wireshark/-/raw/master/pdml2html.xsl. -->
+    // <pdml version="0" creator="wireshark/4.0.6" time="Sat Oct  7 09:51:54 2023" capture_file="src/test.pcap">
+    // <packet>
+    //   <proto name="geninfo" pos="0" showname="General information" size="28">
+    //     <field name="num" pos="0" show="1" showname="Number" value="1" size="28"/>
+    //   </proto>
+    //   <proto name="frame" pos="0" showname="General information" size="28">
+    //   ...
+    //
+    // or, if using "whitelist" with -e option
+    //
+    // <pdml version="0" creator="wireshark/4.0.6" time="Sat Oct  7 09:51:54 2023" capture_file="src/test.pcap">
+    // <packet>
+    //   <proto name="geninfo" pos="0" showname="General information" size="28">
+    //     <field name="num" pos="0" show="1" showname="Number" value="1" size="28"/>
+    // </proto>
+    // <field name="num" pos="0" show="1" showname="Number" value="1" size="28"/>
+    // ...
 
     loop {
         match xml_reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => match e.name().as_ref() {
-                b"packet" => (),
-                b"proto" => {
+            Ok(Event::Start(ref e)) => {
+                // Here we have "packet" and "proto" tokens. Only "proto" is interesting today.
+                if b"proto" == e.name().as_ref() {
                     let proto = rtshark_attr_by_name(e, b"name")?;
-                    match proto.as_str() {
-                        "geninfo" => mode = Mode::GenInfo,
-                        "fake-field-wrapper" => mode = Mode::SkipMetadata,
-                        _ => {
-                            mode = Mode::StoreMetadata;
-                            packet.push(proto);
+                    protoname = Some(proto.to_owned());
+
+                    // If we face a new protocol, add it in the packet layers stack.
+                    if !ignored_protocols(proto.as_str()) {
+                        packet.push(proto);
+                    }
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                // Here we should not have anything else than "field" but do a test anyway.
+                if b"field" == e.name().as_ref() {
+                    // Here we have two cases : with or without encapsuling "proto"
+                    // We have a protocol if "whitelist" mode is disabled.
+                    // Protocol "geninfo" is always here.
+                    if let Some(name) = protoname.as_ref() {
+                        if ignored_protocols(name) {
+                            // Put geninfo metadata in packet's object (timestamp ...).
+                            geninfo_metadata(e, &mut packet)?;
+                        } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
+                            // We can unwrap because we must have a layer : it was pushed in Event::Start
+                            packet.last_layer_mut().unwrap().add(metadata);
+                        }
+                    } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
+                        // Whitelist mode here.
+                        // In whitelist mode, tshark pdml output do not encapsulate fields in a <proto> tag...
+                        // So we have to guess if this metadata is for this layer or if we have to push a new layer
+                        let mut add_new_protocol: Option<String> = None;
+                        // Get protocol name for this metadata
+                        if let Some(proto) = metadata.name().split('.').next() {
+                            // compare current layer's protocol with metadata's protocol name
+                            if let Some(layer) = packet.last_layer_mut() {
+                                // If this is the same protocol's name, we will keep it.
+                                // It looks impossible to know if this metadata belong to the same layer or another
+                                // especially in the case of tunnels.
+                                if layer.name().ne(proto) {
+                                    add_new_protocol = Some(proto.to_owned());
+                                }
+                            } else {
+                                add_new_protocol = Some(proto.to_owned());
+                            }
+                        }
+
+                        // push a new layer if needed
+                        if let Some(proto) = add_new_protocol {
+                            packet.push(proto)
+                        }
+
+                        if let Some(layer) = packet.last_layer_mut() {
+                            layer.add(metadata);
+                        } else {
+                            return Err(Error::new(
+                                ErrorKind::InvalidData,
+                                "Cannot find protocol name to push a metadata",
+                            ));
                         }
                     }
                 }
-                b"field" => {
-                    if mode != Mode::StoreMetadata {
-                        continue;
-                    }
-                    let metadata = rtshark_build_metadata(e, filters)?;
-                    if let Some(metadata) = metadata {
-                        packet.last_layer_mut().unwrap().add(metadata);
-                    }
-                }
-                _ => (),
-            },
-            Ok(Event::Empty(ref e)) => match (e.name().as_ref(), mode) {
-                (b"packet", _) => (),
-                (b"proto", _) => (),
-                (b"field", Mode::StoreMetadata) => {
-                    let metadata = rtshark_build_metadata(e, filters)?;
-                    if let Some(metadata) = metadata {
-                        packet.last_layer_mut().unwrap().add(metadata);
-                    }
-                }
-                (b"field", Mode::GenInfo) => {
-                    use chrono::{LocalResult, TimeZone as _, Utc};
-
-                    let name = rtshark_attr_by_name(e, b"name")?;
-                    if name != "timestamp" {
-                        continue;
-                    }
-                    let value = rtshark_attr_by_name(e, b"value")?;
-
-                    let bad_timestamp = || {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("Error decoding timestamp: {value}"),
-                        )
-                    };
-
-                    let (secs, nsecs) = value.split_once('.').ok_or_else(bad_timestamp)?;
-                    let secs = secs.parse().map_err(|_| bad_timestamp())?;
-                    let nsecs = nsecs.parse().map_err(|_| bad_timestamp())?;
-
-                    let LocalResult::Single(dt) = Utc.timestamp_opt(secs, nsecs) else {
-                            return Err(bad_timestamp());
-                        };
-                    packet.timestamp_micros.replace(dt.timestamp_micros());
-                }
-                _ => (),
-            },
+            }
             Ok(Event::End(ref e)) => match e.name().as_ref() {
                 b"packet" => return Ok(Some(packet)),
-                b"proto" => (),
-                b"field" => (),
+                b"proto" => protoname = None,
                 _ => (),
             },
 
@@ -1135,7 +1220,7 @@ fn parse_xml<B: BufRead>(
                     ),
                 ));
             }
-            Ok(_) => (),
+            Ok(_) => {}
         }
     }
 }
@@ -1162,7 +1247,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1191,7 +1276,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1213,7 +1298,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1235,7 +1320,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1257,7 +1342,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]);
+        let msg = parse_xml(&mut reader, &[]);
 
         match msg {
             Err(_) => (),
@@ -1282,7 +1367,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = parse_xml(&mut reader, &vec![]).unwrap().unwrap();
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -1306,7 +1391,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = parse_xml(&mut reader, &vec![]).unwrap().unwrap();
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -1326,14 +1411,14 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]);
+        let msg = parse_xml(&mut reader, &[]);
         match msg {
             Err(_) => (),
             _ => panic!("invalid result"),
         }
     }
 
-    const XML_TCP: &'static str = r#"
+    const XML_TCP: &str = r#"
     <pdml>
      <packet>
       <proto name="frame">
@@ -1356,7 +1441,7 @@ mod tests {
     fn test_access_packet_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1378,7 +1463,7 @@ mod tests {
     fn test_access_packet_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1400,7 +1485,7 @@ mod tests {
     fn test_access_layer_index() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1419,7 +1504,7 @@ mod tests {
     fn test_access_layer_name() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1461,7 +1546,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1483,7 +1568,7 @@ mod tests {
     fn test_access_layer_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1500,7 +1585,7 @@ mod tests {
     fn test_access_layer_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1517,7 +1602,7 @@ mod tests {
     fn test_access_layer_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec![]).unwrap();
+        let msg = parse_xml(&mut reader, &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1535,7 +1620,7 @@ mod tests {
     fn test_parser_filter_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = parse_xml(&mut reader, &vec!["ip.src".to_string()]).unwrap();
+        let msg = parse_xml(&mut reader, &["ip.src".to_string()]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -1562,19 +1647,19 @@ mod tests {
         </pdml>"#;
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             Some(p) => assert!(p.layer_name("tcp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             Some(p) => assert!(p.layer_name("igmp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match parse_xml(&mut reader, &vec![]).unwrap() {
+        match parse_xml(&mut reader, &[]).unwrap() {
             None => (),
             _ => panic!("invalid Output type"),
         }
@@ -1605,7 +1690,7 @@ mod tests {
         loop {
             match rtshark.read().unwrap() {
                 None => break,
-                _ => (),
+                Some(_) => todo!(),
             }
         }
 
@@ -1742,6 +1827,132 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[test]
+    fn test_rtshark_input_pcap_whitelist() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .metadata_whitelist("ip.dst");
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read a packet
+        let pkt = match rtshark.read().unwrap() {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        assert!(ip.metadata("ip.src").is_none());
+        assert!(ip.metadata("ip.dst").unwrap().value().eq("127.0.0.1"));
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_input_pcap_multiple_whitelist() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .metadata_whitelist("ip.src")
+            .metadata_whitelist("ip.dst");
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read a packet
+        let pkt = match rtshark.read().unwrap() {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        assert!(ip.metadata("ip.src").unwrap().value().eq("127.0.0.1"));
+        assert!(ip.metadata("ip.dst").unwrap().value().eq("127.0.0.1"));
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_rtshark_input_pcap_whitelist_multiple_layer() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .metadata_whitelist("ip.src")
+            .metadata_whitelist("udp.dstport");
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read a packet
+        let pkt = match rtshark.read().unwrap() {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        assert!(ip.metadata("ip.src").unwrap().value().eq("127.0.0.1"));
+        let ip = pkt.layer_name("udp").unwrap();
+        assert!(ip.metadata("udp.dstport").unwrap().value().eq("53"));
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    // this test may fail if executed in parallel wuth other tests. Run it with --test-threads=1 option.
+    #[test]
+    fn test_rtshark_input_pcap_whitelist_missing_attr() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .metadata_whitelist("nosuchproto.nosuchmetadata");
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read a packet
+        let ret = rtshark.read();
+        assert!(ret.is_err());
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_fifo() {
@@ -1853,7 +2064,7 @@ mod tests {
         };
 
         // verify tshark is stopped
-        assert!(std::path::Path::new(&format!("/proc/{pid}")).exists() == false);
+        assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
 
         /* remove fifo & tempdir */
         tmp_dir.close().expect("Error deleting fifo dir");
@@ -2064,7 +2275,7 @@ mod tests {
         loop {
             match rtshark.read().unwrap() {
                 None => break,
-                _ => (),
+                Some(_) => todo!(),
             }
         }
 
@@ -2261,7 +2472,7 @@ mod tests {
 
         let builder = RTSharkBuilder::builder()
             .input_path(pcap_path.to_str().unwrap())
-            .keylog_file(&keylog_path.as_os_str().to_str().unwrap());
+            .keylog_file(keylog_path.as_os_str().to_str().unwrap());
 
         let mut rtshark = builder.spawn().unwrap();
 
