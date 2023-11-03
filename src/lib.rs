@@ -1149,6 +1149,25 @@ fn parse_xml<B: BufRead>(
     // <field name="num" pos="0" show="1" showname="Number" value="1" size="28"/>
     // ...
 
+    /// Create a new layer if required and add metadata to the given packet.
+    fn _add_metadata(packet: &mut Packet, metadata: Metadata) -> Result<()> {
+        // Create a new layer if the field's protocol does not exist yet as a layer.
+        if let Some(proto) = metadata.name().split('.').next() {
+            packet.push_if_not_exist(proto.to_owned());
+        }
+
+        if let Some(layer) = packet.last_layer_mut() {
+            layer.add(metadata);
+        } else {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "Cannot find protocol name to push a metadata",
+            ));
+        }
+
+        Ok(())
+    }
+
     loop {
         match xml_reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
@@ -1166,19 +1185,7 @@ fn parse_xml<B: BufRead>(
                 // There are cases where fields are mapped in fields. So check if there is any parent field and extract its metadata.
                 if b"field" == e.name().as_ref() {
                     if let Some(metadata) = rtshark_build_metadata(e, filters)? {
-                        // Create a new layer if the field's protocol does not exist yet as a layer.
-                        if let Some(proto) = metadata.name().split('.').next() {
-                            packet.push_if_not_exist(proto.to_owned());
-                        }
-
-                        if let Some(layer) = packet.last_layer_mut() {
-                            layer.add(metadata);
-                        } else {
-                            return Err(Error::new(
-                                ErrorKind::InvalidData,
-                                "Cannot find protocol name to push a metadata",
-                            ));
-                        }
+                        _add_metadata(&mut packet, metadata)?;
                     }
                 }
             }
@@ -1197,26 +1204,7 @@ fn parse_xml<B: BufRead>(
                             packet.last_layer_mut().unwrap().add(metadata);
                         }
                     } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
-                        // Whitelist mode here.
-                        // In whitelist mode, tshark pdml output do not encapsulate fields in a <proto> tag...
-                        // So we have to guess if this metadata is for this layer or if we have to push a new layer
-                        let mut add_new_protocol: Option<String> = None;
-                        // Get protocol name for this metadata
-                        if let Some(proto) = metadata.name().split('.').next() {
-                            // Create a new layer if the field's protocol does not exist yet as a layer.
-                            if let Some(proto) = metadata.name().split('.').next() {
-                                packet.push_if_not_exist(proto.to_owned());
-                            }
-                        }
-
-                        if let Some(layer) = packet.last_layer_mut() {
-                            layer.add(metadata);
-                        } else {
-                            return Err(Error::new(
-                                ErrorKind::InvalidData,
-                                "Cannot find protocol name to push a metadata",
-                            ));
-                        }
+                        _add_metadata(&mut packet, metadata)?;
                     }
                 }
             }
