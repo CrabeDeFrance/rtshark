@@ -305,6 +305,18 @@ impl Packet {
         self.layers.push(layer);
     }
 
+    /// Push a new layer at the end of the layer stack if the given layer does not exist yet.
+    pub fn push_if_not_exist(&mut self, name: String) {
+        if let Some(last_layer) = self.last_layer_mut() {
+            // ignore the layer if it already exists
+            if last_layer.name.eq(&name) {
+                return;
+            }
+        }
+
+        self.push(name);
+    }
+
     /// Get the last layer as mutable reference. It is used to push incoming metadata in the current packet.
     fn last_layer_mut(&mut self) -> Option<&mut Layer> {
         self.layers.last_mut()
@@ -955,10 +967,10 @@ impl RTShark {
     /// Check if process is stopped, get the exit code and return true if stopped.
     fn try_wait_has_exited(child: &mut Child) -> bool {
         #[cfg(target_family = "unix")]
-        let value =
+            let value =
             matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some());
         #[cfg(target_family = "windows")]
-        let value = matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() );
+            let value = matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() );
         value
     }
 }
@@ -1140,7 +1152,7 @@ fn parse_xml<B: BufRead>(
     loop {
         match xml_reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                // Here we have "packet" and "proto" tokens. Only "proto" is interesting today.
+                // Here we have "packet" and "proto" and sometimes "field" tokens. Only "proto" and "field" are interesting today.
                 if b"proto" == e.name().as_ref() {
                     let proto = rtshark_attr_by_name(e, b"name")?;
                     protoname = Some(proto.to_owned());
@@ -1148,6 +1160,25 @@ fn parse_xml<B: BufRead>(
                     // If we face a new protocol, add it in the packet layers stack.
                     if !ignored_protocols(proto.as_str()) {
                         packet.push(proto);
+                    }
+                }
+
+                // There are cases where fields are mapped in fields. So check if there is any parent field and extract its metadata.
+                if b"field" == e.name().as_ref() {
+                    if let Some(metadata) = rtshark_build_metadata(e, filters)? {
+                        // Create a new layer if the field's protocol does not exist yet as a layer.
+                        if let Some(proto) = metadata.name().split('.').next() {
+                            packet.push_if_not_exist(proto.to_owned());
+                        }
+
+                        if let Some(layer) = packet.last_layer_mut() {
+                            layer.add(metadata);
+                        } else {
+                            return Err(Error::new(
+                                ErrorKind::InvalidData,
+                                "Cannot find protocol name to push a metadata",
+                            ));
+                        }
                     }
                 }
             }
@@ -1172,22 +1203,10 @@ fn parse_xml<B: BufRead>(
                         let mut add_new_protocol: Option<String> = None;
                         // Get protocol name for this metadata
                         if let Some(proto) = metadata.name().split('.').next() {
-                            // compare current layer's protocol with metadata's protocol name
-                            if let Some(layer) = packet.last_layer_mut() {
-                                // If this is the same protocol's name, we will keep it.
-                                // It looks impossible to know if this metadata belong to the same layer or another
-                                // especially in the case of tunnels.
-                                if layer.name().ne(proto) {
-                                    add_new_protocol = Some(proto.to_owned());
-                                }
-                            } else {
-                                add_new_protocol = Some(proto.to_owned());
+                            // Create a new layer if the field's protocol does not exist yet as a layer.
+                            if let Some(proto) = metadata.name().split('.').next() {
+                                packet.push_if_not_exist(proto.to_owned());
                             }
-                        }
-
-                        // push a new layer if needed
-                        if let Some(proto) = add_new_protocol {
-                            packet.push(proto)
                         }
 
                         if let Some(layer) = packet.last_layer_mut() {
@@ -1926,7 +1945,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
-    // this test may fail if executed in parallel wuth other tests. Run it with --test-threads=1 option.
+    // this test may fail if executed in parallel with other tests. Run it with --test-threads=1 option.
     #[test]
     fn test_rtshark_input_pcap_whitelist_missing_attr() {
         let pcap = include_bytes!("test.pcap");
@@ -2093,7 +2112,7 @@ mod tests {
             nix::unistd::Pid::from_raw(rtshark.pid().unwrap() as libc::pid_t),
             nix::sys::signal::Signal::SIGKILL,
         )
-        .unwrap();
+            .unwrap();
 
         // reading from process output should give EOF
         match rtshark.read().unwrap() {
