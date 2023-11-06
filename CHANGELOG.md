@@ -1,3 +1,9 @@
+# 2.7.1 (2023-11-06)
+
+## Fixes
+
+- Fix missing sub-metadata - child fields (Thanks to "DennisNemec").
+
 # 2.7.0 (2023-10-08)
 
 ## Features
