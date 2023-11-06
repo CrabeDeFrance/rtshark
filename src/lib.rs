@@ -1673,6 +1673,42 @@ mod tests {
     }
 
     #[test]
+    fn test_rtshark_field_in_field() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="btcommon">
+            <field name="btcommon.eir_ad.entry.data" showname="Data: <data>" size="8" pos="39" show="<some data>" value="<some data>">
+              <field name="_ws.expert" showname="Expert Info (Note/Undecoded): Undecoded" size="0" pos="39">
+                <field name="btcommon.eir_ad.undecoded" showname="Undecoded" size="0" pos="0" show="" value=""/>
+                <field name="_ws.expert.message" showname="Message: Undecoded" hide="yes" size="0" pos="0" show="Undecoded"/>
+                <field name="_ws.expert.severity" showname="Severity level: Note" size="0" pos="0" show="4194304"/>
+                <field name="_ws.expert.group" showname="Group: Undecoded" size="0" pos="0" show="83886080"/>
+              </field>
+            </field>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+        match parse_xml(&mut reader, &[]).unwrap() {
+            Some(p) => match p.layer_name("btcommon") {
+                Some(layer) => {
+                    layer
+                        .metadata("btcommon.eir_ad.entry.data")
+                        .unwrap_or_else(|| panic!("Missing btcommon.eir_ad.entry.data"));
+
+                    layer
+                        .metadata("btcommon.eir_ad.undecoded")
+                        .unwrap_or_else(|| panic!("Missing btcommon.eir_ad.undecoded"));
+                }
+                None => panic!("missing protocol"),
+            },
+            _ => panic!("invalid Output type"),
+        }
+    }
+
+    #[test]
     fn test_rtshark_input_pcap() {
         let pcap = include_bytes!("test.pcap");
 
