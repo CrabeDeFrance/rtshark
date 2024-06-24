@@ -1,6 +1,6 @@
 [package]
 name = "rtshark"
-version = "2.7.1"
+version = "2.8.0"
 edition = "2021"
 authors = ["CrabeDeFrance"]
 license = "MIT OR Apache-2.0"

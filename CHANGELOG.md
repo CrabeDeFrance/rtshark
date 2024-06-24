@@ -1,3 +1,17 @@
+# 2.8.0 (2024-06-24)
+
+## Features
+
+- Extract relevant protocol metadata from virtual layer 'fake-field-wrapper' (Thanks to "lrstewart" #16)
+This is needed to extract tcp.reassembled.data.
+- Add raw_value metadata API to get access to "value" XML attribute (Thanks to "lrstewart" #17)
+This feature may decrease performance because "raw" values are bigger than usual.
+- Add support for multiple interfaces (#15)
+
+## Fixes
+
+- Update dependencies to their latest version
+
 # 2.7.1 (2023-11-06)
 
 ## Fixes
