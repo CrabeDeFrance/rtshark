@@ -54,6 +54,8 @@ pub struct Metadata {
     /// It uses pyshark-like algorithm to display the best 'value' :
     /// it looks for "show" first, then "value", finally "showname"
     value: String,
+    /// Value displayed by TShark, if different from human readable format
+    raw_value: Option<String>,
     /// Both name and value, as displayed by thshark
     display: String,
     /// Size of this data extracted from packet header protocol, in bytes
@@ -69,6 +71,7 @@ impl Metadata {
         Metadata {
             name,
             value,
+            raw_value: None,
             display,
             size,
             position,
@@ -99,6 +102,14 @@ impl Metadata {
     /// ```
     pub fn value(&self) -> &str {
         self.value.as_str()
+    }
+
+    /// Raw value for this metadata, displayed by TShark.
+    ///
+    /// When `value` is set to "show" instead of "value", "value" can still
+    /// be retrieved from `raw_value`.
+    pub fn raw_value(&self) -> &str {
+        self.raw_value.as_ref().unwrap_or(&self.value).as_str()
     }
 
     /// Both name and value, as displayed by TShark
@@ -1064,13 +1075,7 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
         Err(err) => Err(err),
     }?;
 
-    let mut metadata = Metadata {
-        name,
-        value,
-        display: String::new(),
-        size: 0,
-        position: 0,
-    };
+    let mut metadata = Metadata::new(name, value, String::new(), 0, 0);
 
     if let Ok(position) = rtshark_attr_by_name_u32(tag, b"pos") {
         metadata.position = position;
@@ -1080,6 +1085,11 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
     }
     if let Ok(display) = rtshark_attr_by_name(tag, b"showname") {
         metadata.display = display;
+    }
+    if let Ok(raw_value) = rtshark_attr_by_name(tag, b"value") {
+        if raw_value != metadata.value {
+            metadata.raw_value = Some(raw_value);
+        }
     }
     Ok(Some(metadata))
 }
@@ -1377,6 +1387,32 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_all_value_fields_available() {
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
+        // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+        // try first "show", then "value", finally "showname"
+
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="icmp">
+           <field name="data" show="data is aa" value="0a" showname="data: a0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
+
+        let icmp = pkt.layer_name("icmp").unwrap();
+        let data = icmp.metadata("data").unwrap();
+        assert!(data.value().eq("data is aa"));
+        assert!(data.raw_value().eq("0a"));
+        assert!(data.display().eq("data: a0"));
+    }
+
+    #[test]
     fn test_parse_missing_show_attribute() {
         // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
         // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
@@ -1398,6 +1434,7 @@ mod tests {
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
         assert!(data.value().eq("0a"));
+        assert!(data.raw_value() == data.value());
     }
 
     #[test]
@@ -1422,6 +1459,7 @@ mod tests {
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
         assert!(data.value().eq("data: a0"));
+        assert!(data.raw_value() == data.value());
     }
 
     #[test]
@@ -2601,4 +2639,3 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 }
-
