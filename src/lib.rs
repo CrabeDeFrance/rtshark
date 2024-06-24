@@ -1206,12 +1206,31 @@ fn parse_xml<B: BufRead>(
                     // We have a protocol if "whitelist" mode is disabled.
                     // Protocol "geninfo" is always here.
                     if let Some(name) = protoname.as_ref() {
-                        if ignored_protocols(name) {
+                        if name == "geninfo" {
                             // Put geninfo metadata in packet's object (timestamp ...).
                             geninfo_metadata(e, &mut packet)?;
                         } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
-                            // We can unwrap because we must have a layer : it was pushed in Event::Start
-                            packet.last_layer_mut().unwrap().add(metadata);
+                            // Some dissectors place field items at the top level instead
+                            // of inside a protocol. In these cases, in the PDML output the
+                            // field items are placed inside a fake "<proto>" element named
+                            // "fake-field-wrapper" in order to maximize compliance.
+                            // See https://github.com/wireshark/wireshark/blob/master/doc/README.xml-output
+                            //
+                            // An example is "tcp.reassembled". We should try to add these
+                            // items to the correct layer so that they are accessible.
+                            if name == "fake-field-wrapper" {
+                                let proto_from_name =
+                                    metadata.name().split('.').next().unwrap_or("");
+                                let proto_layer = packet
+                                    .last_layer_mut()
+                                    .filter(|layer| layer.name == proto_from_name);
+                                if let Some(layer) = proto_layer {
+                                    layer.add(metadata);
+                                }
+                            } else {
+                                // We can unwrap because we must have a layer : it was pushed in Event::Start
+                                packet.last_layer_mut().unwrap().add(metadata);
+                            }
                         }
                     } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
                         _add_metadata(&mut packet, metadata)?;
@@ -2580,6 +2599,42 @@ mod tests {
 
         rtshark.kill();
 
+        assert!(rtshark.pid().is_none());
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_reassembled_tcp() {
+        let pcap = include_bytes!("tcp_fragmentation.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            // The ClientHello is the fragmented message
+            .display_filter("tls.handshake.type == 1");
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        // read packets
+        loop {
+            match rtshark.read().unwrap() {
+                None => break,
+                Some(p) => {
+                    let tcp = p.layer_name("tcp").expect("Missing tcp layer");
+                    tcp.metadata("tcp.reassembled.data")
+                        .expect("Missing metadata");
+                }
+            }
+        }
+
+        rtshark.kill();
         assert!(rtshark.pid().is_none());
         tmp_dir.close().expect("Error deleting fifo dir");
     }
