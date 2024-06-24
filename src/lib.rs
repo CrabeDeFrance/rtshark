@@ -488,7 +488,7 @@ impl<'a> RTSharkBuilder {
 
     pub fn input_path(&mut self, path: &'a str) -> RTSharkBuilderReady<'a> {
         RTSharkBuilderReady::<'a> {
-            input_path: path,
+            input_path: vec![path],
             live_capture: false,
             metadata_blacklist: vec![],
             metadata_whitelist: None,
@@ -507,7 +507,7 @@ impl<'a> RTSharkBuilder {
 #[derive(Clone)]
 pub struct RTSharkBuilderReady<'a> {
     /// path to input source
-    input_path: &'a str,
+    input_path: Vec<&'a str>,
     /// activate live streaming (fifo, network interface). This activates -i option instread of -r.
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
@@ -529,6 +529,26 @@ pub struct RTSharkBuilderReady<'a> {
 }
 
 impl<'a> RTSharkBuilderReady<'a> {
+    /// Adds another input for tshark. It works only with live capture to read packets from
+    /// multiple interfaces.
+    /// Adding multiple pcap files will fail, since tshark will only read the last instance of "-r"
+    /// option.
+    ///
+    /// ## Example: Prepare an instance of TShark to read from mulitple network interfaces
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("eth0")
+    ///     .input_path("eth1")
+    ///     .live_capture();
+    /// ```
+
+    pub fn input_path(&mut self, path: &'a str) -> Self {
+        let mut new = self.clone();
+        new.input_path.push(path);
+        new
+    }
+
     /// Enables -i option of TShark.
     ///
     /// This option must be set to use network interface or pipe for live packet capture. See input_path() option of [RTSharkBuilder] for more details.
@@ -714,21 +734,34 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// let tshark: std::io::Result<rtshark::RTShark> = builder.spawn();
     /// ```
     pub fn spawn(&self) -> Result<RTShark> {
-        // test if input file exists
-        if !self.live_capture {
-            std::fs::metadata(self.input_path).map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => std::io::Error::new(
-                    e.kind(),
-                    format!("Unable to find {}: {}", &self.input_path, e),
-                ),
+        // prepare tshark command line parameters
+        let mut tshark_params = if self.live_capture {
+            let mut input = vec![];
+            self.input_path
+                .iter()
+                .for_each(|i| input.extend(&["-i", i]));
+            input
+        } else {
+            if self.input_path.len() > 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "tshark supports only one input pcap file",
+                ));
+            }
+
+            // test if input file exists
+            let input_path = self.input_path[0];
+            std::fs::metadata(input_path).map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    std::io::Error::new(e.kind(), format!("Unable to find {}: {}", input_path, e))
+                }
                 _ => e,
             })?;
-        }
 
-        // prepare tshark command line parameters
-        let mut tshark_params = vec![
-            if !self.live_capture { "-r" } else { "-i" },
-            self.input_path,
+            vec!["-r", input_path]
+        };
+
+        tshark_params.extend(&[
             // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
             // This information is equivalent to the packet details printed with the -V option.
             "-Tpdml",
@@ -737,10 +770,9 @@ impl<'a> RTSharkBuilderReady<'a> {
             // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and,
             // if packet information isn’t being displayed to the terminal, writes a continuous count of packets captured to the standard output.
             // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed.
-            "-Q",
-        ];
-
-        tshark_params.extend(&["-l"]);
+            "-Q", // -l activate unbuffered mode, usefull to print packets as they come
+            "-l",
+        ]);
 
         if !self.output_path.is_empty() {
             tshark_params.extend(&["-w", self.output_path]);
@@ -2079,6 +2111,67 @@ mod tests {
         output.write_all(pcap).expect("unable to write in fifo");
 
         // get analysis
+        match rtshark.read().unwrap() {
+            Some(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        // stop tshark
+        rtshark.kill();
+
+        // verify tshark is stopped
+        assert!(rtshark.pid().is_none());
+
+        /* remove fifo & tempdir */
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_rtshark_input_multiple_fifo() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir
+        let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
+        let fifo_path1 = tmp_dir.path().join("pcap1.pipe");
+        let fifo_path2 = tmp_dir.path().join("pcap2.pipe");
+
+        // create new fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path1, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // create another fifo and give read, write and execute rights to the owner
+        nix::unistd::mkfifo(&fifo_path2, nix::sys::stat::Mode::S_IRWXU)
+            .expect("Error creating fifo");
+
+        // start tshark on the fifo
+        let builder = RTSharkBuilder::builder()
+            .input_path(fifo_path1.to_str().unwrap())
+            .input_path(fifo_path2.to_str().unwrap())
+            .live_capture();
+        let mut rtshark = builder.spawn().unwrap();
+
+        // send one packet in the fifo1
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&fifo_path1)
+            .expect("unable to open fifo");
+        output.write_all(pcap).expect("unable to write in fifo");
+
+        // send one packet in the fifo2
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&fifo_path2)
+            .expect("unable to open fifo");
+        output.write_all(pcap).expect("unable to write in fifo");
+
+        // get analysis from first packet
+        match rtshark.read().unwrap() {
+            Some(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+
+        // get analysis for second packet
         match rtshark.read().unwrap() {
             Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
