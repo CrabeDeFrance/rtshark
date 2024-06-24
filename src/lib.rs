@@ -978,10 +978,10 @@ impl RTShark {
     /// Check if process is stopped, get the exit code and return true if stopped.
     fn try_wait_has_exited(child: &mut Child) -> bool {
         #[cfg(target_family = "unix")]
-            let value =
+        let value =
             matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some());
         #[cfg(target_family = "windows")]
-            let value = matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() );
+        let value = matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() );
         value
     }
 }
@@ -1263,7 +1263,6 @@ fn parse_xml<B: BufRead>(
 
 #[cfg(test)]
 mod tests {
-
     use std::io::Write;
 
     use serial_test::serial;
@@ -2193,7 +2192,7 @@ mod tests {
             nix::unistd::Pid::from_raw(rtshark.pid().unwrap() as libc::pid_t),
             nix::sys::signal::Signal::SIGKILL,
         )
-            .unwrap();
+        .unwrap();
 
         // reading from process output should give EOF
         match rtshark.read().unwrap() {
