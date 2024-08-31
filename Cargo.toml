@@ -18,6 +18,7 @@ exclude = ["/.github"]
 [dependencies]
 chrono = { version = "0.4", default-features = false }
 quick-xml = "0.33"
+semver = "1.0.23"
 
 [dev-dependencies]
 tempdir = "0.3"
