@@ -40,6 +40,7 @@
 //! ```
 
 use quick_xml::events::{BytesStart, Event};
+use semver::Version;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
 #[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
@@ -499,6 +500,73 @@ impl<'a> RTSharkBuilder {
             output_path: "",
             decode_as: vec![],
         }
+    }
+
+    /// Retrieve version information for the TShark executable.
+    ///
+    /// ## Example:
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder();
+    /// if let Ok(version) = builder.version() {
+    ///     println!("Version: {}", version.message());
+    /// }
+    /// ```
+    pub fn version(&self) -> Result<RTSharkVersion> {
+        let output = Command::new("tshark").args(["--version"]).output()?;
+        let message = std::str::from_utf8(&output.stdout)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Version message not utf8: {}", e),
+                )
+            })?
+            .to_owned();
+        let version = message
+            .split_whitespace()
+            .find_map(|s| Version::parse(s).ok())
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Unable to parse version from command output",
+            ))?;
+        Ok(RTSharkVersion { version, message })
+    }
+}
+
+/// Version information for the TShark executable
+pub struct RTSharkVersion {
+    version: Version,
+    message: String,
+}
+
+impl RTSharkVersion {
+    /// The version of the TShark executable.
+    ///
+    /// This value may be logged or used to check for support for features
+    /// not available from all versions of TShark.
+    ///
+    /// ## Example:
+    /// ```
+    /// use semver::Version;
+    ///
+    /// let min_version = Version::new(4, 0, 0);
+    /// let builder = rtshark::RTSharkBuilder::builder();
+    /// if let Ok(version) = builder.version() {
+    ///     if version.version() < &min_version {
+    ///         println!("Version requirements not met!");
+    ///     }
+    /// }
+    /// ```
+    pub fn version(&self) -> &Version {
+        &self.version
+    }
+
+    /// The full versioning message printed by the TShark executable.
+    ///
+    /// The full message may include additional information about
+    /// copyrights, the environment where the binary was compiled, and
+    /// the environment where the binary is currently running.
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -2729,5 +2797,11 @@ mod tests {
         rtshark.kill();
         assert!(rtshark.pid().is_none());
         tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[test]
+    fn test_tshark_version() {
+        let builder = RTSharkBuilder::builder();
+        builder.version().expect("Error getting tshark version");
     }
 }
