@@ -430,6 +430,7 @@ impl IntoIterator for Packet {
 /// RTSharkBuilder is used to prepare arguments needed to start a TShark instance.
 /// When the mandatory input_path is set, it creates a [RTSharkBuilderReady] object,
 /// which can be used to add more optional parameters before spawning a [RTShark] instance.
+/// RTSharkBuilder may be used to retrieve version information for the TShark executable.
 pub struct RTSharkBuilder {}
 
 impl<'a> RTSharkBuilder {
@@ -700,7 +701,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///
     /// This method can be called multiple times to add more metadata in the whitelist.
     ///
-    /// In whitelist mode, TShark PDML does not encapsulate fields in a <proto> tag anymore
+    /// In whitelist mode, TShark PDML does not encapsulate fields in a 'proto' tag anymore
     /// so it is not possible to build all packet's layers.
     ///
     /// ### Example: Prepare an instance of TShark to print only IP source and destination metadata.
