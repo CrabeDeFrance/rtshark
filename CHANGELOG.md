@@ -1,3 +1,10 @@
+# 2.9.0 (2024-09-15)
+
+## Features
+
+- New API to get rtshark versioning information (Thanks to "lrstewart").
+- Update dependencies to their latest version
+
 # 2.8.0 (2024-06-24)
 
 ## Features
