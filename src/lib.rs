@@ -498,6 +498,7 @@ impl<'a> RTSharkBuilder {
             display_filter: "",
             env_path: "",
             keylog_file: "",
+            options: vec![],
             output_path: "",
             decode_as: vec![],
         }
@@ -577,7 +578,7 @@ impl RTSharkVersion {
 pub struct RTSharkBuilderReady<'a> {
     /// path to input source
     input_path: Vec<&'a str>,
-    /// activate live streaming (fifo, network interface). This activates -i option instread of -r.
+    /// activate live streaming (fifo, network interface). This activates -i option instead of -r.
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
     metadata_blacklist: Vec<String>,
@@ -591,6 +592,8 @@ pub struct RTSharkBuilderReady<'a> {
     env_path: &'a str,
     /// path to the key log file that enables decryption of TLS traffic
     keylog_file: &'a str,
+    /// any special options to configure decoding
+    options: Vec<String>,
     /// path to input source
     output_path: &'a str,
     /// decode_as : let TShark to decode as this expression
@@ -603,7 +606,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// Adding multiple pcap files will fail, since tshark will only read the last instance of "-r"
     /// option.
     ///
-    /// ## Example: Prepare an instance of TShark to read from mulitple network interfaces
+    /// ## Example: Prepare an instance of TShark to read from multiple network interfaces
     ///
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
@@ -757,6 +760,24 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
+    /// Set custom options to tune the tshark decoding.
+    ///
+    /// This method can be called multiple times to add more options.
+    ///
+    /// ### Example: Prepare an instance of TShark without ip defragmenting and custom inap args:
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .option("ip.defragment:false")
+    ///     .option("inap.ssn:146");
+    /// ```
+    pub fn option(&self, option: &'a str) -> Self {
+        let mut new = self.clone();
+        new.options.push(option.to_owned());
+        new
+    }
+
     /// Write raw packet data to outfile or to the standard output if outfile is '-'.
     /// Note : this option provides raw packet data, not text.
     ///
@@ -866,9 +887,15 @@ impl<'a> RTSharkBuilderReady<'a> {
         } else {
             Some(format!("tls.keylog_file:{}", self.keylog_file))
         };
+
+        for option in &self.options {
+            tshark_params.extend(&["-o", option]);
+        }
+
         if let Some(ref keylog) = opt_keylog {
             tshark_params.extend(&["-o", keylog]);
         }
+
         if let Some(wl) = &self.metadata_whitelist {
             for whitelist_elem in wl {
                 tshark_params.extend(&["-e", whitelist_elem]);
@@ -2300,7 +2327,7 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
-    #[cfg(target_family = "unix")]
+    #[cfg(all(target_family = "unix", not(target_os = "macos")))]
     #[test]
     fn test_rtshark_drop() {
         // create temp dir
@@ -2474,6 +2501,62 @@ mod tests {
             Ok(_) => panic!("We can't start if file is missing"),
             Err(e) => println!("{e}"),
         }
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_rtshark_set_options() {
+        let pcap = include_bytes!("tcp_fragmentation.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // second pass: turn on relative sequence numbers
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .option("tcp.relative_sequence_numbers:true");
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        match rtshark.read().unwrap() {
+            Some(p) =>
+                {
+                    let tcp = p.layer_name("tcp").expect("tcp layer");
+                    if !tcp.metadata.iter().any(|md| md.display().contains("relative sequence number")) {
+                        panic!("expected relative sequence number")
+                    }
+                },
+            e => panic!("invalid Output type: {:?}", e),
+        }
+
+        rtshark.kill();
+
+        // second pass: turn off relative sequence numbers
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .option("tcp.relative_sequence_numbers:false");
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        // we should not see any relative sequence numbers
+        match rtshark.read().unwrap() {
+            Some(p) =>
+                {
+                    let tcp = p.layer_name("tcp").expect("tcp layer");
+                    if tcp.metadata.iter().any(|md| md.display().contains("relative sequence number")) {
+                        panic!("expected no relative sequence numbers")
+                    }
+                },
+            e => panic!("invalid Output type: {:?}", e),
+        }
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
     }
 
     #[test]
