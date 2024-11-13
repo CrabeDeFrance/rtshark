@@ -499,6 +499,7 @@ impl<'a> RTSharkBuilder {
             env_path: "",
             keylog_file: "",
             options: vec![],
+            disabled_protocols: vec![],
             output_path: "",
             decode_as: vec![],
         }
@@ -594,6 +595,8 @@ pub struct RTSharkBuilderReady<'a> {
     keylog_file: &'a str,
     /// any special options to configure decoding
     options: Vec<String>,
+    /// any protocols that should be explicitly disabled
+    disabled_protocols: Vec<String>,
     /// path to input source
     output_path: &'a str,
     /// decode_as : let TShark to decode as this expression
@@ -778,6 +781,24 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
+    /// Provide protocol names that should be disabled in tshark decoding.
+    ///
+    /// This method can be called multiple times to add more protocols.
+    ///
+    /// ### Example: Prepare an instance of TShark where t30 and t38 protocols are not decoded:
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .disabled_protocol("t30")
+    ///     .disabled_protocol("t38");
+    /// ```
+    pub fn disabled_protocol(&self, protocol: &'a str) -> Self {
+        let mut new = self.clone();
+        new.disabled_protocols.push(protocol.to_owned());
+        new
+    }
+
     /// Write raw packet data to outfile or to the standard output if outfile is '-'.
     /// Note : this option provides raw packet data, not text.
     ///
@@ -900,6 +921,11 @@ impl<'a> RTSharkBuilderReady<'a> {
             for whitelist_elem in wl {
                 tshark_params.extend(&["-e", whitelist_elem]);
             }
+        }
+
+        let disabled_protocols = self.disabled_protocols.join(",");
+        if !disabled_protocols.is_empty() {
+            tshark_params.extend(&["--disable-protocol", &disabled_protocols]);
         }
 
         // piping from TShark, not to load the entire JSON in ram...
@@ -2550,6 +2576,40 @@ mod tests {
                     if tcp.metadata.iter().any(|md| md.display().contains("relative sequence number")) {
                         panic!("expected no relative sequence numbers")
                     }
+                },
+            e => panic!("invalid Output type: {:?}", e),
+        }
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_rtshark_set_disabled_protocols() {
+        let pcap = include_bytes!("tcp_fragmentation.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // turn off tcp and sip protocols
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .disabled_protocol("tcp")
+            .disabled_protocol("sip");
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        match rtshark.read().unwrap() {
+            Some(p) =>
+                {
+                   assert!(p.layer_name("tcp").is_none());
+                   assert!(p.layer_name("sip").is_none());
                 },
             e => panic!("invalid Output type: {:?}", e),
         }
