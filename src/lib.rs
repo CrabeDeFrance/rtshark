@@ -33,7 +33,7 @@
 //!     for layer in packet {
 //!         println!("Layer: {}", layer.name());
 //!         for metadata in layer {
-//!             println!("\t{}", metadata.display());
+//!             println!("\t{}", metadata.value());
 //!         }
 //!     }
 //! }
@@ -58,17 +58,23 @@ pub struct Metadata {
     /// Value displayed by TShark, if different from human readable format
     raw_value: Option<String>,
     /// Both name and value, as displayed by thshark
-    display: String,
+    display: Option<String>,
     /// Size of this data extracted from packet header protocol, in bytes
-    size: u32,
+    size: Option<u32>,
     /// Offset of this data in the packet, in bytes
-    position: u32,
+    position: Option<u32>,
 }
 
 /// This is one metadata from a given layer of the packet returned by TShark application.
 impl Metadata {
     /// Creates a new metadata. This function is useless for most applications.
-    pub fn new(name: String, value: String, display: String, size: u32, position: u32) -> Metadata {
+    pub fn new(
+        name: String,
+        value: String,
+        display: Option<String>,
+        size: Option<u32>,
+        position: Option<u32>,
+    ) -> Metadata {
         Metadata {
             name,
             value,
@@ -84,7 +90,7 @@ impl Metadata {
     /// # Examples
     ///
     /// ```
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), None, None, None);
     /// assert_eq!(ip_src.name(), "ip.src")
     /// ```
     pub fn name(&self) -> &str {
@@ -98,7 +104,7 @@ impl Metadata {
     /// # Examples
     ///
     /// ```
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), None, None, None);
     /// assert_eq!(ip_src.value(), "127.0.0.1")
     /// ```
     pub fn value(&self) -> &str {
@@ -106,6 +112,8 @@ impl Metadata {
     }
 
     /// Raw value for this metadata, displayed by TShark.
+    ///
+    /// This value is not set when using metadata whitelist filtering.
     ///
     /// When `value` is set to "show" instead of "value", "value" can still
     /// be retrieved from `raw_value`.
@@ -115,37 +123,43 @@ impl Metadata {
 
     /// Both name and value, as displayed by TShark
     ///
+    /// This value is not set when using metadata whitelist filtering.
+    ///
     /// # Examples
     ///
     /// ```
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
-    /// assert_eq!(ip_src.display(), "Source: 127.0.0.1")
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), None, None);
+    /// assert_eq!(ip_src.display(), Some("Source: 127.0.0.1"))
     /// ```
-    pub fn display(&self) -> &str {
-        self.display.as_str()
+    pub fn display(&self) -> Option<&str> {
+        self.display.as_deref()
     }
 
     /// Size of this data extracted from packet header protocol, in bytes
     ///
+    /// This value is not set when using metadata whitelist filtering.
+    ///
     /// # Examples
     ///
     /// ```
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
-    /// assert_eq!(ip_src.size(), 4)
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), Some(4), Some(12));
+    /// assert_eq!(ip_src.size(), Some(4))
     /// ```
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> Option<u32> {
         self.size
     }
 
     /// Offset of this data in the packet, in bytes
     ///
+    /// This value is not set when using metadata whitelist filtering.
+    ///
     /// # Examples
     ///
     /// ```
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
-    /// assert_eq!(ip_src.position(), 12)
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), Some(4), Some(12));
+    /// assert_eq!(ip_src.position(), Some(12))
     /// ```
-    pub fn position(&self) -> u32 {
+    pub fn position(&self) -> Option<u32> {
         self.position
     }
 }
@@ -206,7 +220,7 @@ impl Layer {
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), None, None, None);
     /// ip_layer.add(ip_src);
     /// ```
     pub fn add(&mut self, metadata: Metadata) {
@@ -219,10 +233,10 @@ impl Layer {
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), None, None);
     /// ip_layer.add(ip_src);
     /// let ip_src = ip_layer.metadata("ip.src").unwrap();
-    /// assert_eq!(ip_src.display(), "Source: 127.0.0.1")
+    /// assert_eq!(ip_src.display(), Some("Source: 127.0.0.1"))
     /// ```
     pub fn metadata(&self, name: &str) -> Option<&Metadata> {
         self.metadata.iter().find(|m| m.name().eq(name))
@@ -236,10 +250,10 @@ impl Layer {
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), None, None);
     /// ip_layer.add(ip_src);
     /// let metadata = ip_layer.iter().next().unwrap();
-    /// assert_eq!(metadata.display(), "Source: 127.0.0.1")
+    /// assert_eq!(metadata.display(), Some("Source: 127.0.0.1"))
     /// ```
     pub fn iter(&self) -> impl Iterator<Item = &Metadata> {
         self.metadata.iter()
@@ -258,20 +272,20 @@ impl IntoIterator for Layer {
     ///
     /// ```
     /// let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
-    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), None, None);
     /// ip_layer.add(ip_src);
     /// for metadata in ip_layer {
-    ///     assert_eq!(metadata.display(), "Source: 127.0.0.1")
+    ///     assert_eq!(metadata.display(), Some("Source: 127.0.0.1"))
     /// }
     /// ```
     /// # Example 2
     ///
     /// ```
     /// # let mut ip_layer = rtshark::Layer::new("ip".to_string(), 1);
-    /// # let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), "Source: 127.0.0.1".to_string(), 4, 12);
+    /// # let ip_src = rtshark::Metadata::new("ip.src".to_string(), "127.0.0.1".to_string(), Some("Source: 127.0.0.1".to_string()), None, None);
     /// # ip_layer.add(ip_src);
     /// let metadata = ip_layer.into_iter().next().unwrap();
-    /// assert_eq!(metadata.display(), "Source: 127.0.0.1")
+    /// assert_eq!(metadata.display(), Some("Source: 127.0.0.1"))
     /// ```
     fn into_iter(self) -> Self::IntoIter {
         self.metadata.into_iter()
@@ -1216,16 +1230,16 @@ fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option
         Err(err) => Err(err),
     }?;
 
-    let mut metadata = Metadata::new(name, value, String::new(), 0, 0);
+    let mut metadata = Metadata::new(name, value, None, None, None);
 
     if let Ok(position) = rtshark_attr_by_name_u32(tag, b"pos") {
-        metadata.position = position;
+        metadata.position = Some(position);
     }
     if let Ok(size) = rtshark_attr_by_name_u32(tag, b"size") {
-        metadata.size = size;
+        metadata.size = Some(size);
     }
     if let Ok(display) = rtshark_attr_by_name(tag, b"showname") {
-        metadata.display = display;
+        metadata.display = Some(display);
     }
     if let Ok(raw_value) = rtshark_attr_by_name(tag, b"value") {
         if raw_value != metadata.value {
@@ -1434,7 +1448,7 @@ mod tests {
             for m in layer {
                 assert!(m.name().eq("frame.time"));
                 assert!(m.value().eq("test time"));
-                assert!(m.display().eq("test time display"));
+                assert_eq!(m.display(), Some("test time display"));
             }
         }
     }
@@ -1549,7 +1563,7 @@ mod tests {
         let data = icmp.metadata("data").unwrap();
         assert!(data.value().eq("data is aa"));
         assert!(data.raw_value().eq("0a"));
-        assert!(data.display().eq("data: a0"));
+        assert_eq!(data.display(), Some("data: a0"));
     }
 
     #[test]
@@ -2538,11 +2552,13 @@ mod tests {
         match rtshark.read().unwrap() {
             Some(p) => {
                 let tcp = p.layer_name("tcp").expect("tcp layer");
-                if !tcp
-                    .metadata
-                    .iter()
-                    .any(|md| md.display().contains("relative sequence number"))
-                {
+                if !tcp.metadata.iter().any(|md| {
+                    if let Some(display) = md.display() {
+                        display.contains("relative sequence number")
+                    } else {
+                        false
+                    }
+                }) {
                     panic!("expected relative sequence number")
                 }
             }
@@ -2562,11 +2578,13 @@ mod tests {
         match rtshark.read().unwrap() {
             Some(p) => {
                 let tcp = p.layer_name("tcp").expect("tcp layer");
-                if tcp
-                    .metadata
-                    .iter()
-                    .any(|md| md.display().contains("relative sequence number"))
-                {
+                if tcp.metadata.iter().any(|md| {
+                    if let Some(display) = md.display() {
+                        display.contains("relative sequence number")
+                    } else {
+                        false
+                    }
+                }) {
                     panic!("expected no relative sequence numbers")
                 }
             }
