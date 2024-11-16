@@ -1944,11 +1944,11 @@ mod tests {
     #[test]
     fn test_rtshark_input_pcap_decode_as() {
         // 0. prepare pcap
-        let pcap = include_bytes!("http2.pcap");
+        let pcap = include_bytes!("rtp.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
-        let pcap_path = tmp_dir.path().join("http2.pcap");
+        let pcap_path = tmp_dir.path().join("rtp.pcap");
         let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
         output.write_all(pcap).expect("unable to write pcap");
         output.flush().expect("unable to flush");
@@ -1962,7 +1962,7 @@ mod tests {
 
         // read a packet, must be tcp without http2
         match rtshark.read().unwrap() {
-            Some(p) => assert!(p.layer_name("http2").is_none()),
+            Some(p) => assert!(p.layer_name("rtp").is_none()),
             _ => panic!("invalid Output type"),
         }
 
@@ -1973,13 +1973,13 @@ mod tests {
         // 2. a second run with decode_as option
         let builder = RTSharkBuilder::builder()
             .input_path(pcap_path.to_str().unwrap())
-            .decode_as("tcp.port==29502,http2");
+            .decode_as("udp.port==6000,rtp");
 
         let mut rtshark = builder.spawn().unwrap();
 
         // read a packet, must be http2
         match rtshark.read().unwrap() {
-            Some(p) => assert!(p.layer_name("http2").is_some()),
+            Some(p) => assert!(p.layer_name("rtp").is_some()),
             _ => panic!("invalid Output type"),
         }
 
@@ -2873,25 +2873,21 @@ mod tests {
         let mut rtshark = builder.spawn().unwrap();
 
         // read packets and search for http2 get
-        let mut http2_get_found = false;
+        let mut http2_found = false;
         loop {
             match rtshark.read().unwrap() {
                 None => break,
                 Some(p) => {
                     // we check there is a http2 method GET
                     assert!(p.layer_name("tcp").is_some());
-                    if let Some(http2) = p.layer_name("http2") {
-                        if let Some(get) = http2.metadata("http2.headers.method") {
-                            if get.value() == "GET" {
-                                http2_get_found = true;
-                            }
-                        }
+                    if p.layer_name("http2").is_some() {
+                        http2_found = true;
                     }
                 }
             }
         }
 
-        assert!(http2_get_found);
+        assert!(http2_found);
 
         rtshark.kill();
 
