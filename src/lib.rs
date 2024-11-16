@@ -924,9 +924,8 @@ impl<'a> RTSharkBuilderReady<'a> {
             }
         }
 
-        let disable_protocols = self.disabled_protocols.join(",");
-        if !disable_protocols.is_empty() {
-            tshark_params.extend(&["--disable-protocol", &disable_protocols]);
+        for protocol in &self.disabled_protocols {
+            tshark_params.extend(&["--disable-protocol", protocol]);
         }
 
         // piping from TShark, not to load the entire JSON in ram...
