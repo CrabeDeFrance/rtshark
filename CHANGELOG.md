@@ -1,3 +1,9 @@
+# 3.0.0 (2024-11-16)
+
+## Features
+
+- Update metadata structure. Fields display, size and position are optional.
+
 # 2.10.0 (2024-11-16)
 
 ## Features
