@@ -593,7 +593,7 @@ pub struct RTSharkBuilderReady<'a> {
     env_path: &'a str,
     /// path to the key log file that enables decryption of TLS traffic
     keylog_file: &'a str,
-    /// any special options to configure decoding
+    /// any special options to configure protocol decoding
     options: Vec<String>,
     /// any protocols that should be explicitly disabled
     disabled_protocols: Vec<String>,
@@ -763,7 +763,8 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
-    /// Set custom options to tune the tshark decoding.
+    /// Set custom protocol's option to tune the tshark decoding.
+    /// This adds -o parameter to tshark command line.
     ///
     /// This method can be called multiple times to add more options.
     ///
@@ -790,10 +791,10 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// ```
     /// let builder = rtshark::RTSharkBuilder::builder()
     ///     .input_path("/tmp/my.pcap")
-    ///     .disabled_protocol("t30")
-    ///     .disabled_protocol("t38");
+    ///     .disable_protocol("t30")
+    ///     .disable_protocol("t38");
     /// ```
-    pub fn disabled_protocol(&self, protocol: &'a str) -> Self {
+    pub fn disable_protocol(&self, protocol: &'a str) -> Self {
         let mut new = self.clone();
         new.disabled_protocols.push(protocol.to_owned());
         new
@@ -923,9 +924,9 @@ impl<'a> RTSharkBuilderReady<'a> {
             }
         }
 
-        let disabled_protocols = self.disabled_protocols.join(",");
-        if !disabled_protocols.is_empty() {
-            tshark_params.extend(&["--disable-protocol", &disabled_protocols]);
+        let disable_protocols = self.disabled_protocols.join(",");
+        if !disable_protocols.is_empty() {
+            tshark_params.extend(&["--disable-protocol", &disable_protocols]);
         }
 
         // piping from TShark, not to load the entire JSON in ram...
@@ -2606,8 +2607,8 @@ mod tests {
         // turn off tcp and sip protocols
         let builder = RTSharkBuilder::builder()
             .input_path(pcap_path.to_str().unwrap())
-            .disabled_protocol("tcp")
-            .disabled_protocol("sip");
+            .disable_protocol("tcp")
+            .disable_protocol("sip");
 
         let mut rtshark = builder.spawn().unwrap();
 
