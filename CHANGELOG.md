@@ -1,3 +1,11 @@
+# 2.10.0 (2024-11-16)
+
+## Features
+
+- New API to change behavior of protocols (tshark -o) thanks to "Jamie Hodkinson"
+- New API to disable protocol (tshark --disable-protocol) thanks to "Jamie Hodkinson"
+- Update dependencies to their latest version
+
 # 2.9.0 (2024-09-15)
 
 ## Features
