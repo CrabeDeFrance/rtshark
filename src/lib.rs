@@ -497,7 +497,6 @@ impl<'a> RTSharkBuilder {
             capture_filter: "",
             display_filter: "",
             env_path: "",
-            keylog_file: "",
             options: vec![],
             disabled_protocols: vec![],
             output_path: "",
@@ -591,8 +590,6 @@ pub struct RTSharkBuilderReady<'a> {
     display_filter: &'a str,
     /// custom environment path containing TShark application
     env_path: &'a str,
-    /// path to the key log file that enables decryption of TLS traffic
-    keylog_file: &'a str,
     /// any special options to configure protocol decoding
     options: Vec<String>,
     /// any protocols that should be explicitly disabled
@@ -759,7 +756,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// ```
     pub fn keylog_file(&self, path: &'a str) -> Self {
         let mut new = self.clone();
-        new.keylog_file = path;
+        new.options.push(format!("tls.keylog_file:{}", path));
         new
     }
 
@@ -904,18 +901,8 @@ impl<'a> RTSharkBuilderReady<'a> {
             }
         }
 
-        let opt_keylog = if self.keylog_file.is_empty() {
-            None
-        } else {
-            Some(format!("tls.keylog_file:{}", self.keylog_file))
-        };
-
         for option in &self.options {
             tshark_params.extend(&["-o", option]);
-        }
-
-        if let Some(ref keylog) = opt_keylog {
-            tshark_params.extend(&["-o", keylog]);
         }
 
         if let Some(wl) = &self.metadata_whitelist {
