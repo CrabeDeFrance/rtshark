@@ -2549,13 +2549,16 @@ mod tests {
         let mut rtshark = builder.spawn().unwrap();
 
         match rtshark.read().unwrap() {
-            Some(p) =>
+            Some(p) => {
+                let tcp = p.layer_name("tcp").expect("tcp layer");
+                if !tcp
+                    .metadata
+                    .iter()
+                    .any(|md| md.display().contains("relative sequence number"))
                 {
-                    let tcp = p.layer_name("tcp").expect("tcp layer");
-                    if !tcp.metadata.iter().any(|md| md.display().contains("relative sequence number")) {
-                        panic!("expected relative sequence number")
-                    }
-                },
+                    panic!("expected relative sequence number")
+                }
+            }
             e => panic!("invalid Output type: {:?}", e),
         }
 
@@ -2570,13 +2573,16 @@ mod tests {
 
         // we should not see any relative sequence numbers
         match rtshark.read().unwrap() {
-            Some(p) =>
+            Some(p) => {
+                let tcp = p.layer_name("tcp").expect("tcp layer");
+                if tcp
+                    .metadata
+                    .iter()
+                    .any(|md| md.display().contains("relative sequence number"))
                 {
-                    let tcp = p.layer_name("tcp").expect("tcp layer");
-                    if tcp.metadata.iter().any(|md| md.display().contains("relative sequence number")) {
-                        panic!("expected no relative sequence numbers")
-                    }
-                },
+                    panic!("expected no relative sequence numbers")
+                }
+            }
             e => panic!("invalid Output type: {:?}", e),
         }
 
@@ -2606,11 +2612,10 @@ mod tests {
         let mut rtshark = builder.spawn().unwrap();
 
         match rtshark.read().unwrap() {
-            Some(p) =>
-                {
-                   assert!(p.layer_name("tcp").is_none());
-                   assert!(p.layer_name("sip").is_none());
-                },
+            Some(p) => {
+                assert!(p.layer_name("tcp").is_none());
+                assert!(p.layer_name("sip").is_none());
+            }
             e => panic!("invalid Output type: {:?}", e),
         }
 
