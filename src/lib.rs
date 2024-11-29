@@ -857,7 +857,15 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// let tshark: std::io::Result<rtshark::RTShark> = builder.spawn();
     /// ```
     pub fn spawn(&self) -> Result<RTShark> {
-        let tshark_params = self.prepare_args()?;
+        let mut tshark_params = self.prepare_args()?;
+
+        tshark_params.extend(&[
+            // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
+            // This information is equivalent to the packet details printed with the -V option.
+            "-Tpdml",
+            // -l activate unbuffered mode, usefull to print packets as they come
+            "-l",
+        ]);
 
         // piping from TShark, not to load the entire JSON in ram...
         // this may fail if TShark is not found in path
@@ -926,16 +934,12 @@ impl<'a> RTSharkBuilderReady<'a> {
         };
 
         tshark_params.extend(&[
-            // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
-            // This information is equivalent to the packet details printed with the -V option.
-            "-Tpdml",
             // Disable network object name resolution (such as hostname, TCP and UDP port names)
             "-n",
             // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and,
             // if packet information isn’t being displayed to the terminal, writes a continuous count of packets captured to the standard output.
             // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed.
-            "-Q", // -l activate unbuffered mode, usefull to print packets as they come
-            "-l",
+            "-Q",
         ]);
 
         if !self.output_path.is_empty() {
