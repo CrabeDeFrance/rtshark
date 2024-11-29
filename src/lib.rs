@@ -857,7 +857,48 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// let tshark: std::io::Result<rtshark::RTShark> = builder.spawn();
     /// ```
     pub fn spawn(&self) -> Result<RTShark> {
-        // prepare tshark command line parameters
+        let tshark_params = self.prepare_args()?;
+
+        // piping from TShark, not to load the entire JSON in ram...
+        // this may fail if TShark is not found in path
+
+        let tshark_child = if self.env_path.is_empty() {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        } else {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .env("PATH", self.env_path)
+                .spawn()
+        };
+
+        let mut tshark_child = tshark_child.map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => {
+                std::io::Error::new(e.kind(), format!("Unable to find tshark: {}", e))
+            }
+            _ => e,
+        })?;
+
+        let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
+        let stderr = BufReader::new(tshark_child.stderr.take().unwrap());
+
+        let reader = quick_xml::Reader::from_reader(buf_reader);
+
+        Ok(RTShark::new(
+            tshark_child,
+            reader,
+            stderr,
+            self.metadata_blacklist.clone(),
+        ))
+    }
+
+    /// Prepare tshark command line parameters.
+    fn prepare_args(&self) -> Result<Vec<&str>> {
         let mut tshark_params = if self.live_capture {
             let mut input = vec![];
             self.input_path
@@ -929,42 +970,7 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["--disable-protocol", protocol]);
         }
 
-        // piping from TShark, not to load the entire JSON in ram...
-        // this may fail if TShark is not found in path
-
-        let tshark_child = if self.env_path.is_empty() {
-            Command::new("tshark")
-                .args(&tshark_params)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-        } else {
-            Command::new("tshark")
-                .args(&tshark_params)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .env("PATH", self.env_path)
-                .spawn()
-        };
-
-        let mut tshark_child = tshark_child.map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                std::io::Error::new(e.kind(), format!("Unable to find tshark: {}", e))
-            }
-            _ => e,
-        })?;
-
-        let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
-        let stderr = BufReader::new(tshark_child.stderr.take().unwrap());
-
-        let reader = quick_xml::Reader::from_reader(buf_reader);
-
-        Ok(RTShark::new(
-            tshark_child,
-            reader,
-            stderr,
-            self.metadata_blacklist.clone(),
-        ))
+        Ok(tshark_params)
     }
 }
 
