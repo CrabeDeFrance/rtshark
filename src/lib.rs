@@ -905,6 +905,52 @@ impl<'a> RTSharkBuilderReady<'a> {
         ))
     }
 
+    /// Starts a new TShark process given the provided parameters and runs it to completion. In
+    /// contrast to [`RTSharkBuilderReady::spawn` ]no programmatic access to individual packets is
+    /// provided.
+    /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found or no read permission...
+    /// In other cases (output_path not writable, invalid syntax for pcap_filter or display_filter),
+    /// TShark process will fail and the stderr will be reported.
+    /// # Example
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap");
+    /// let _: Result<(), std::io::Error> = builder.batch();
+    /// ```
+    pub fn batch(&self) -> Result<()> {
+        let tshark_params = self.prepare_args()?;
+
+        let mut tshark_child = if self.env_path.is_empty() {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()?
+        } else {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .env("PATH", self.env_path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
+
+        let mut stderr = BufReader::new(tshark_child.stderr.take().unwrap());
+
+        if !tshark_child.wait()?.success() {
+            // if process stops, there may be due to an error, we can get it in stderr
+            let mut line = String::new();
+            let size = stderr.read_line(&mut line)?;
+            // if len is != 0 there is an error message
+            if size != 0 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, line));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Prepare tshark command line parameters.
     fn prepare_args(&self) -> Result<Vec<&str>> {
         let mut tshark_params = if self.live_capture {
@@ -2963,5 +3009,42 @@ mod tests {
     fn test_tshark_version() {
         let builder = RTSharkBuilder::builder();
         builder.version().expect("Error getting tshark version");
+    }
+
+    #[test]
+    fn test_batch() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let original = tmp_dir.path().join("original.pcap");
+        std::fs::write(&original, pcap).unwrap();
+
+        let normalized = tmp_dir.path().join("normalized.pcap");
+
+        // Spawn tshark on it to normalize the input.
+        RTSharkBuilder::builder()
+            .input_path(original.to_str().unwrap())
+            .output_path(normalized.to_str().unwrap())
+            .batch()
+            .unwrap();
+        assert!(
+            !std::fs::read(&normalized).unwrap().is_empty(),
+            "assumed normalization to produce some output, but it did not"
+        );
+
+        // Spawn tshark on the normalized PCAP to actually produce an "interesting" output.
+        let output = tmp_dir.path().join("output.pcap");
+        RTSharkBuilder::builder()
+            .input_path(normalized.to_str().unwrap())
+            .output_path(output.to_str().unwrap())
+            .batch()
+            .unwrap();
+
+        // Validate that the output matches the normalized input.
+        let normalized = std::fs::read(normalized).unwrap();
+        let output = std::fs::read(output).unwrap();
+
+        assert_eq!(normalized, output);
     }
 }
