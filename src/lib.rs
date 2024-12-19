@@ -857,77 +857,15 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// let tshark: std::io::Result<rtshark::RTShark> = builder.spawn();
     /// ```
     pub fn spawn(&self) -> Result<RTShark> {
-        // prepare tshark command line parameters
-        let mut tshark_params = if self.live_capture {
-            let mut input = vec![];
-            self.input_path
-                .iter()
-                .for_each(|i| input.extend(&["-i", i]));
-            input
-        } else {
-            if self.input_path.len() > 1 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "tshark supports only one input pcap file",
-                ));
-            }
-
-            // test if input file exists
-            let input_path = self.input_path[0];
-            std::fs::metadata(input_path).map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => {
-                    std::io::Error::new(e.kind(), format!("Unable to find {}: {}", input_path, e))
-                }
-                _ => e,
-            })?;
-
-            vec!["-r", input_path]
-        };
+        let mut tshark_params = self.prepare_args()?;
 
         tshark_params.extend(&[
             // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
             // This information is equivalent to the packet details printed with the -V option.
             "-Tpdml",
-            // Disable network object name resolution (such as hostname, TCP and UDP port names)
-            "-n",
-            // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and,
-            // if packet information isn’t being displayed to the terminal, writes a continuous count of packets captured to the standard output.
-            // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed.
-            "-Q", // -l activate unbuffered mode, usefull to print packets as they come
+            // -l activate unbuffered mode, usefull to print packets as they come
             "-l",
         ]);
-
-        if !self.output_path.is_empty() {
-            tshark_params.extend(&["-w", self.output_path]);
-        }
-
-        if self.live_capture && !self.capture_filter.is_empty() {
-            tshark_params.extend(&["-f", self.capture_filter]);
-        }
-
-        if !self.display_filter.is_empty() {
-            tshark_params.extend(&["-Y", self.display_filter]);
-        }
-
-        if !self.decode_as.is_empty() {
-            for elm in self.decode_as.iter() {
-                tshark_params.extend(&["-d", elm]);
-            }
-        }
-
-        for option in &self.options {
-            tshark_params.extend(&["-o", option]);
-        }
-
-        if let Some(wl) = &self.metadata_whitelist {
-            for whitelist_elem in wl {
-                tshark_params.extend(&["-e", whitelist_elem]);
-            }
-        }
-
-        for protocol in &self.disabled_protocols {
-            tshark_params.extend(&["--disable-protocol", protocol]);
-        }
 
         // piping from TShark, not to load the entire JSON in ram...
         // this may fail if TShark is not found in path
@@ -965,6 +903,124 @@ impl<'a> RTSharkBuilderReady<'a> {
             stderr,
             self.metadata_blacklist.clone(),
         ))
+    }
+
+    /// Starts a new TShark process given the provided parameters and runs it to completion. In
+    /// contrast to [`RTSharkBuilderReady::spawn` ]no programmatic access to individual packets is
+    /// provided.
+    /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found or no read permission...
+    /// In other cases (output_path not writable, invalid syntax for pcap_filter or display_filter),
+    /// TShark process will fail and the stderr will be reported.
+    /// # Example
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap");
+    /// let _: Result<(), std::io::Error> = builder.batch();
+    /// ```
+    pub fn batch(&self) -> Result<()> {
+        let tshark_params = self.prepare_args()?;
+
+        let mut tshark_child = if self.env_path.is_empty() {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()?
+        } else {
+            Command::new("tshark")
+                .args(&tshark_params)
+                .env("PATH", self.env_path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
+
+        let mut stderr = BufReader::new(tshark_child.stderr.take().unwrap());
+
+        if !tshark_child.wait()?.success() {
+            // if process stops, there may be due to an error, we can get it in stderr
+            let mut line = String::new();
+            let size = stderr.read_line(&mut line)?;
+            // if len is != 0 there is an error message
+            if size != 0 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, line));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Prepare tshark command line parameters.
+    fn prepare_args(&self) -> Result<Vec<&str>> {
+        let mut tshark_params = if self.live_capture {
+            let mut input = vec![];
+            self.input_path
+                .iter()
+                .for_each(|i| input.extend(&["-i", i]));
+            input
+        } else {
+            if self.input_path.len() > 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "tshark supports only one input pcap file",
+                ));
+            }
+
+            // test if input file exists
+            let input_path = self.input_path[0];
+            std::fs::metadata(input_path).map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    std::io::Error::new(e.kind(), format!("Unable to find {}: {}", input_path, e))
+                }
+                _ => e,
+            })?;
+
+            vec!["-r", input_path]
+        };
+
+        tshark_params.extend(&[
+            // Disable network object name resolution (such as hostname, TCP and UDP port names)
+            "-n",
+            // When capturing packets, TShark writes to the standard error an initial line listing the interfaces from which packets are being captured and,
+            // if packet information isn’t being displayed to the terminal, writes a continuous count of packets captured to the standard output.
+            // If the -Q option is specified, neither the initial line, nor the packet information, nor any packet counts will be displayed.
+            "-Q",
+        ]);
+
+        if !self.output_path.is_empty() {
+            tshark_params.extend(&["-w", self.output_path]);
+        }
+
+        if self.live_capture && !self.capture_filter.is_empty() {
+            tshark_params.extend(&["-f", self.capture_filter]);
+        }
+
+        if !self.display_filter.is_empty() {
+            tshark_params.extend(&["-Y", self.display_filter]);
+        }
+
+        if !self.decode_as.is_empty() {
+            for elm in self.decode_as.iter() {
+                tshark_params.extend(&["-d", elm]);
+            }
+        }
+
+        for option in &self.options {
+            tshark_params.extend(&["-o", option]);
+        }
+
+        if let Some(wl) = &self.metadata_whitelist {
+            for whitelist_elem in wl {
+                tshark_params.extend(&["-e", whitelist_elem]);
+            }
+        }
+
+        for protocol in &self.disabled_protocols {
+            tshark_params.extend(&["--disable-protocol", protocol]);
+        }
+
+        Ok(tshark_params)
     }
 }
 
@@ -2953,5 +3009,42 @@ mod tests {
     fn test_tshark_version() {
         let builder = RTSharkBuilder::builder();
         builder.version().expect("Error getting tshark version");
+    }
+
+    #[test]
+    fn test_batch() {
+        let pcap = include_bytes!("test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let original = tmp_dir.path().join("original.pcap");
+        std::fs::write(&original, pcap).unwrap();
+
+        let normalized = tmp_dir.path().join("normalized.pcap");
+
+        // Spawn tshark on it to normalize the input.
+        RTSharkBuilder::builder()
+            .input_path(original.to_str().unwrap())
+            .output_path(normalized.to_str().unwrap())
+            .batch()
+            .unwrap();
+        assert!(
+            !std::fs::read(&normalized).unwrap().is_empty(),
+            "assumed normalization to produce some output, but it did not"
+        );
+
+        // Spawn tshark on the normalized PCAP to actually produce an "interesting" output.
+        let output = tmp_dir.path().join("output.pcap");
+        RTSharkBuilder::builder()
+            .input_path(normalized.to_str().unwrap())
+            .output_path(output.to_str().unwrap())
+            .batch()
+            .unwrap();
+
+        // Validate that the output matches the normalized input.
+        let normalized = std::fs::read(normalized).unwrap();
+        let output = std::fs::read(output).unwrap();
+
+        assert_eq!(normalized, output);
     }
 }
