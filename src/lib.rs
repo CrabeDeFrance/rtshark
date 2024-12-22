@@ -867,30 +867,7 @@ impl<'a> RTSharkBuilderReady<'a> {
             "-l",
         ]);
 
-        // piping from TShark, not to load the entire JSON in ram...
-        // this may fail if TShark is not found in path
-
-        let tshark_child = if self.env_path.is_empty() {
-            Command::new("tshark")
-                .args(&tshark_params)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-        } else {
-            Command::new("tshark")
-                .args(&tshark_params)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .env("PATH", self.env_path)
-                .spawn()
-        };
-
-        let mut tshark_child = tshark_child.map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                std::io::Error::new(e.kind(), format!("Unable to find tshark: {}", e))
-            }
-            _ => e,
-        })?;
+        let mut tshark_child = self.spawn_tshark(&tshark_params)?;
 
         let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
         let stderr = BufReader::new(tshark_child.stderr.take().unwrap());
@@ -921,24 +898,10 @@ impl<'a> RTSharkBuilderReady<'a> {
     pub fn batch(&self) -> Result<()> {
         let tshark_params = self.prepare_args()?;
 
-        let mut tshark_child = if self.env_path.is_empty() {
-            Command::new("tshark")
-                .args(&tshark_params)
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()?
-        } else {
-            Command::new("tshark")
-                .args(&tshark_params)
-                .env("PATH", self.env_path)
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()?
-        };
-
-        let mut stderr = BufReader::new(tshark_child.stderr.take().unwrap());
+        let mut tshark_child = self.spawn_tshark(&tshark_params)?;
 
         if !tshark_child.wait()?.success() {
+            let mut stderr = BufReader::new(tshark_child.stderr.take().unwrap());
             // if process stops, there may be due to an error, we can get it in stderr
             let mut line = String::new();
             let size = stderr.read_line(&mut line)?;
@@ -949,6 +912,33 @@ impl<'a> RTSharkBuilderReady<'a> {
         }
 
         Ok(())
+    }
+
+    fn spawn_tshark(&self, tshark_params: &[&str]) -> Result<Child> {
+        // piping from TShark, not to load the entire output in ram...
+        // spawn may fail if TShark is not found in path
+
+        let tshark_child = if self.env_path.is_empty() {
+            Command::new("tshark")
+                .args(tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        } else {
+            Command::new("tshark")
+                .args(tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .env("PATH", self.env_path)
+                .spawn()
+        };
+
+        tshark_child.map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => {
+                std::io::Error::new(e.kind(), format!("Unable to find tshark: {}", e))
+            }
+            _ => e,
+        })
     }
 
     /// Prepare tshark command line parameters.
