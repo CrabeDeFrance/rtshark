@@ -1,3 +1,9 @@
+# 3.1.0 (2024-12-22)
+
+## Features
+
+- Add new batch API thanks to "bbannier" (#25)
+
 # 3.0.0 (2024-11-16)
 
 ## Features
