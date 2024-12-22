@@ -1177,13 +1177,25 @@ impl RTShark {
     }
 
     /// Check if process is stopped, get the exit code and return true if stopped.
+    /// Why not doing a simple wait ?
     fn try_wait_has_exited(child: &mut Child) -> bool {
-        #[cfg(target_family = "unix")]
-        let value =
-            matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() || s.signal().is_some());
-        #[cfg(target_family = "windows")]
-        let value = matches!(child.try_wait(), Ok(Some(s)) if s.code().is_some() );
-        value
+        let mut count = 3;
+        while count != 0 {
+            #[cfg(target_family = "unix")]
+            if let Ok(Some(s)) = child.try_wait() {
+                return s.code().is_some() || s.signal().is_some();
+            }
+
+            #[cfg(target_family = "windows")]
+            if let Ok(Some(s)) = child.try_wait() {
+                return s.code().is_some();
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            count -= 1;
+        }
+
+        false
     }
 }
 
