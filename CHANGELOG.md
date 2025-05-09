@@ -60,7 +60,7 @@ This improves a lot TShark speed.
 
 # 2.5.0 (2023-07-24)
 
-## Features 
+## Features
 
 - Add new API timestamp_micros (Thanks to "vvv")
 Similar to Packet.sniff_time in pyshark.
@@ -72,7 +72,7 @@ And fix patch level for chrono due to a security issue before 0.4.20.
 
 # 2.4.0 (2023-03-06)
 
-## Features 
+## Features
 
 - Add decode-as option (Thanks to "horaih")
 
@@ -82,13 +82,13 @@ And fix patch level for chrono due to a security issue before 0.4.20.
 
 # 2.3.1 (2022-08-14)
 
-## Fixes 
+## Fixes
 
 - Update Cargo dependencies
 
 # 2.3.0 (2022-08-14)
 
-## Features 
+## Features
 
 - Add Windows support (Thanks to Preet Dua "Prabhpreet")
 

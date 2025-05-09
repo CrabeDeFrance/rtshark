@@ -6,7 +6,7 @@
 [![Documentation](https://docs.rs/rtshark/badge.svg)](https://docs.rs/rtshark/)
 [![dependency status](https://deps.rs/repo/github/CrabeDeFrance/rtshark/status.svg)](https://deps.rs/repo/github/CrabeDeFrance/rtshark)
 
-A Rust interface to TShark, the famous network protocol analyzer. 
+A Rust interface to TShark, the famous network protocol analyzer.
 [TShark](https://www.wireshark.org/docs/man-pages/tshark.html) is a part of [Wireshark](https://www.wireshark.org/) distribution.
 This crate provides an API to start TShark and analyze it's output.
 It lets you capture packet data from a live network or read packets from a previously saved capture file, printing a decoded form of those packets.
