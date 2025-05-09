@@ -501,7 +501,6 @@ impl<'a> RTSharkBuilder {
     ///     .input_path("eth0")
     ///     .live_capture();
     /// ```
-
     pub fn input_path(&mut self, path: &'a str) -> RTSharkBuilderReady<'a> {
         RTSharkBuilderReady::<'a> {
             input_path: vec![path],
@@ -513,6 +512,7 @@ impl<'a> RTSharkBuilder {
             env_path: "",
             options: vec![],
             disabled_protocols: vec![],
+            enabled_protocols: vec![],
             output_path: "",
             decode_as: vec![],
         }
@@ -608,6 +608,8 @@ pub struct RTSharkBuilderReady<'a> {
     options: Vec<String>,
     /// any protocols that should be explicitly disabled
     disabled_protocols: Vec<String>,
+    /// any protocols that should be explicitly enabled
+    enabled_protocols: Vec<String>,
     /// path to input source
     output_path: &'a str,
     /// decode_as : let TShark to decode as this expression
@@ -628,8 +630,8 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .input_path("eth1")
     ///     .live_capture();
     /// ```
-
-    pub fn input_path(&mut self, path: &'a str) -> Self {
+    #[must_use]
+    pub fn input_path(&self, path: &'a str) -> Self {
         let mut new = self.clone();
         new.input_path.push(path);
         new
@@ -639,6 +641,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///
     /// This option must be set to use network interface or pipe for live packet capture. See input_path() option of [RTSharkBuilder] for more details.
     ///
+    #[must_use]
     pub fn live_capture(&self) -> Self {
         let mut new = self.clone();
         new.live_capture = true;
@@ -665,6 +668,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .live_capture()
     ///     .capture_filter("port 53");
     /// ```
+    #[must_use]
     pub fn capture_filter(&self, filter: &'a str) -> Self {
         let mut new = self.clone();
         new.capture_filter = filter;
@@ -685,6 +689,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .input_path("/tmp/my.pcap")
     ///     .display_filter("udp.port == 53");
     /// ```
+    #[must_use]
     pub fn display_filter(&self, filter: &'a str) -> Self {
         let mut new = self.clone();
         new.display_filter = filter;
@@ -705,6 +710,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .metadata_blacklist("ip.src")
     ///     .metadata_blacklist("ip.dst");
     /// ```
+    #[must_use]
     pub fn metadata_blacklist(&self, blacklist: &'a str) -> Self {
         let mut new = self.clone();
         new.metadata_blacklist.push(blacklist.to_owned());
@@ -729,6 +735,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .metadata_whitelist("ip.src")
     ///     .metadata_whitelist("ip.dst");
     /// ```
+    #[must_use]
     pub fn metadata_whitelist(&self, whitelist: &'a str) -> Self {
         let mut new = self.clone();
         if let Some(wl) = &mut new.metadata_whitelist {
@@ -751,6 +758,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .input_path("/tmp/my.pcap")
     ///     .env_path("/opt/local/tshark/");
     /// ```
+    #[must_use]
     pub fn env_path(&self, path: &'a str) -> Self {
         let mut new = self.clone();
         new.env_path = path;
@@ -768,6 +776,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// ```no_compile
     /// editcap --inject-secrets tls,keys.txt in.pcap out-dsb.pcapng
     /// ```
+    #[must_use]
     pub fn keylog_file(&self, path: &'a str) -> Self {
         let mut new = self.clone();
         new.options.push(format!("tls.keylog_file:{}", path));
@@ -787,6 +796,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .option("ip.defragment:false")
     ///     .option("inap.ssn:146");
     /// ```
+    #[must_use]
     pub fn option(&self, option: &'a str) -> Self {
         let mut new = self.clone();
         new.options.push(option.to_owned());
@@ -805,9 +815,30 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .disable_protocol("t30")
     ///     .disable_protocol("t38");
     /// ```
+    #[must_use]
     pub fn disable_protocol(&self, protocol: &'a str) -> Self {
         let mut new = self.clone();
         new.disabled_protocols.push(protocol.to_owned());
+        new
+    }
+
+    /// Provide protocol names that should be enabled in tshark decoding.
+    ///
+    /// This method can be called multiple times to add more protocols.
+    ///
+    /// ### Example: Prepare an instance of TShark where only ethernet and ip are decoded:
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .disable_protocol("ALL")
+    ///     .enable_protocol("eth")
+    ///     .enable_protocol("ip");
+    /// ```
+    #[must_use]
+    pub fn enable_protocol(&self, protocol: &'a str) -> Self {
+        let mut new = self.clone();
+        new.enabled_protocols.push(protocol.to_owned());
         new
     }
 
@@ -821,6 +852,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .input_path("/tmp/in.pcap")
     ///     .output_path("/tmp/out.pcap");
     /// ```
+    #[must_use]
     pub fn output_path(&self, path: &'a str) -> Self {
         let mut new = self.clone();
         new.output_path = path;
@@ -839,6 +871,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     ///     .decode_as("tcp.port==8080,http2")
     ///     .decode_as("tcp.port==8081,http2");
     /// ```
+    #[must_use]
     pub fn decode_as(&self, expr: &'a str) -> Self {
         let mut new = self.clone();
         new.decode_as.push(expr);
@@ -862,8 +895,7 @@ impl<'a> RTSharkBuilderReady<'a> {
         tshark_params.extend(&[
             // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
             // This information is equivalent to the packet details printed with the -V option.
-            "-Tpdml",
-            // -l activate unbuffered mode, usefull to print packets as they come
+            "-Tpdml", // -l activate unbuffered mode, useful to print packets as they come
             "-l",
         ]);
 
@@ -1010,6 +1042,10 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["--disable-protocol", protocol]);
         }
 
+        for protocol in &self.enabled_protocols {
+            tshark_params.extend(&["--enable-protocol", protocol]);
+        }
+
         Ok(tshark_params)
     }
 }
@@ -1129,7 +1165,6 @@ impl RTShark {
     /// // kill running TShark process
     /// rtshark.kill();
     /// ```
-
     pub fn kill(&mut self) {
         if let Some(ref mut process) = self.process {
             let done = match process.try_wait() {
@@ -2584,7 +2619,7 @@ mod tests {
 
         match ret {
             Ok(_) => panic!("We can't start if file is missing"),
-            Err(e) => println!("{e}"),
+            Err(e) => eprintln!("{e}"),
         }
     }
 
@@ -2687,6 +2722,41 @@ mod tests {
         tmp_dir.close().expect("Error deleting fifo dir");
     }
 
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_rtshark_set_enabled_protocols() {
+        let pcap = include_bytes!("tcp_fragmentation.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // turn off everything except eth and ip
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .disable_protocol("ALL")
+            .enable_protocol("eth")
+            .enable_protocol("ip");
+
+        let mut rtshark = builder.spawn().unwrap();
+
+        match rtshark.read().unwrap() {
+            Some(p) => {
+                assert!(p.layer_name("tcp").is_none());
+                assert!(p.layer_name("sip").is_none());
+                assert!(p.layer_name("ip").is_some());
+            }
+            e => panic!("invalid Output type: {:?}", e),
+        }
+
+        rtshark.kill();
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
     #[test]
     #[serial] // Run test serially since its modifying env PATH
     fn test_rtshark_tshark_missing() {
@@ -2714,7 +2784,7 @@ mod tests {
 
         match ret {
             Ok(_) => panic!("We can't start if tshark is missing"),
-            Err(e) => println!("{e}"),
+            Err(e) => eprintln!("{e}"),
         }
     }
 

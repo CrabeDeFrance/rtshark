@@ -12,7 +12,6 @@ readme = "README.md"
 categories = ["network-programming", "api-bindings", "parser-implementations"]
 keywords = ["wireshark", "tshark", "pcap", "network", "dissector"]
 exclude = ["/.github"]
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -21,9 +20,9 @@ quick-xml = "0.37"
 semver = "1"
 
 [dev-dependencies]
-tempdir = "0.3"
 libc = "0.2"
-serial_test="3"
+serial_test = "3"
+tempdir = "0.3"
 
 [target.'cfg(unix)'.dev-dependencies]
 nix = { version = "0.29", features = ["fs", "signal"] }
