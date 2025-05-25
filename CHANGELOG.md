@@ -1,3 +1,10 @@
+# 3.2.0 (2025-05-25)
+
+## Features
+
+- Add new API enable_protocol to enable specific protocols, thanks to "Maxime Bruno".
+- Add [must_use] keyword on builder functions to ensure proper usage.
+
 # 3.1.0 (2024-12-22)
 
 ## Features
