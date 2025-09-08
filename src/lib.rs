@@ -45,6 +45,7 @@ use std::io::{BufRead, BufReader, Error, ErrorKind, Result};
 #[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
+use tokio::io::AsyncBufReadExt;
 
 /// A metadata belongs to one [Layer]. It describes one particular information about a [Packet] (example: IP source address).
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -914,6 +915,81 @@ impl<'a> RTSharkBuilderReady<'a> {
         ))
     }
 
+    /// Starts an asynchronous TShark process given the provided parameters, mapped to a new [RTSharkAsync] instance.
+    /// The feature "async" must be enabled in Cargo.toml to use this function.
+    /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found or no read permission...
+    /// In other cases (output_path not writable, invalid syntax for pcap_filter or display_filter),
+    /// TShark process will start but will stop a few moments later, leading to a EOF on rtshark.read function.
+    /// # Example
+    /// ```
+    /// use tokio;
+    /// #[tokio::main]
+    /// async fn main() -> std::io::Result<()> {
+    ///    use rtshark::RTSharkBuilder;
+    ///         let mut rtshark = RTSharkBuilder::builder()
+    ///             .input_path("/path/to/file.pcap")
+    ///             .capture_filter("tcp")
+    ///             .spawn_async()
+    ///             .unwrap();
+    ///
+    ///         let mut tls_counter = 0;
+    ///         let mut time_counter = 0;
+    ///         let mut running = true;
+    ///
+    ///         while running {
+    ///             tokio::join!(
+    ///                 // Process 1: Try to read a packet
+    ///                 async {
+    ///                     match rtshark.read().await {
+    ///                         Ok(Some(packet)) => {
+    ///                             if let Some(_tls) = packet.layer_name("tls") {
+    ///                                 tls_counter += 1;
+    ///                                 println!("TLS packet count: {}", tls_counter);
+    ///                             }
+    ///                         }
+    ///                         Ok(None) => {
+    ///                             println!("End of capture stream");
+    ///                             running = false;
+    ///                         }
+    ///                         Err(e) => {
+    ///                             eprintln!("Error parsing tshark output: {e}");
+    ///                             running = false;
+    ///                         }
+    ///                     }
+    ///                },
+    ///                 // Process 2: Do something else that takes time (e.g., print a message every interval of time)
+    ///                 async {
+    ///                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    ///                     time_counter += 1;
+    ///                     println!("Time elapsed: {} seconds", time_counter);
+    ///                 }
+    ///             );
+    ///         }
+    ///     Ok(())
+    /// }
+    /// ```
+    #[cfg(feature = "async")]
+    pub fn spawn_async(&self) -> Result<RTSharkAsync> {
+        let mut tshark_params = self.prepare_args()?;
+        // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
+        // This information is equivalent to the packet details printed with the -V option.
+        // -l activate unbuffered mode, useful to print packets as they come
+        tshark_params.extend(&["-Tpdml", "-l"]);
+
+        let mut tshark_child = self.spawn_tshark_async(&tshark_params)?;
+        let buf_reader = tokio::io::BufReader::new(tshark_child.stdout.take().unwrap());
+        let stderr = tokio::io::BufReader::new(tshark_child.stderr.take().unwrap());
+
+        let reader = quick_xml::Reader::from_reader(buf_reader);
+
+        Ok(RTSharkAsync::new(
+            tshark_child,
+            reader,
+            stderr,
+            self.metadata_blacklist.clone(),
+        ))
+    }
+
     /// Starts a new TShark process given the provided parameters and runs it to completion. In
     /// contrast to [`RTSharkBuilderReady::spawn` ]no programmatic access to individual packets is
     /// provided.
@@ -944,6 +1020,32 @@ impl<'a> RTSharkBuilderReady<'a> {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "async")]
+    fn spawn_tshark_async(&self, tshark_params: &[&str]) -> Result<tokio::process::Child> {
+        // piping from TShark, not to load the entire output in ram...
+        // spawn may fail if TShark is not found in path
+
+        let tshark_child = if self.env_path.is_empty() {
+            tokio::process::Command::new("tshark")
+                .args(tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        } else {
+            tokio::process::Command::new("tshark")
+                .args(tshark_params)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .env("PATH", self.env_path)
+                .spawn()
+        };
+
+        tshark_child.map_err(|e| match e.kind() {
+            ErrorKind::NotFound => Error::new(e.kind(), format!("Unable to find tshark: {}", e)),
+            _ => e,
+        })
     }
 
     fn spawn_tshark(&self, tshark_params: &[&str]) -> Result<Child> {
@@ -1047,6 +1149,79 @@ impl<'a> RTSharkBuilderReady<'a> {
         }
 
         Ok(tshark_params)
+    }
+}
+
+/// Async version of RTShark
+#[cfg(feature = "async")]
+pub struct RTSharkAsync {
+    process: Option<tokio::process::Child>,
+    parser: quick_xml::Reader<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    stderr: tokio::io::BufReader<tokio::process::ChildStderr>,
+    filters: Vec<String>,
+}
+
+impl RTSharkAsync {
+    fn new(
+        process: tokio::process::Child,
+        parser: quick_xml::Reader<tokio::io::BufReader<tokio::process::ChildStdout>>,
+        stderr: tokio::io::BufReader<tokio::process::ChildStderr>,
+        filters: Vec<String>,
+    ) -> Self {
+        RTSharkAsync {
+            process: Some(process),
+            parser,
+            stderr,
+            filters,
+        }
+    }
+
+    pub async fn read(&mut self) -> Result<Option<Packet>> {
+        let xml_reader = &mut self.parser;
+
+        let msg_future = parse_xml_async(xml_reader, &self.filters);
+        let msg = msg_future.await?;
+        let done = match &msg {
+            None => {
+                // Got None == EOF
+                match self.process {
+                    Some(ref mut process) => RTSharkAsync::try_wait_has_exited(process),
+                    _ => true,
+                }
+            }
+            _ => false,
+        };
+        if done {
+            self.process = None;
+            // if process stops, there may be due to an error, we can get it in stderr
+            let mut line = String::new();
+            let size = self.stderr.read_line(&mut line).await?;
+            if size != 0 {
+                return Err(Error::new(ErrorKind::InvalidInput, line));
+            }
+        }
+
+        Ok(msg)
+    }
+
+    fn try_wait_has_exited(child: &mut tokio::process::Child) -> bool {
+        let mut count = 3;
+        while count != 0 {
+            #[cfg(target_family = "unix")]
+            if let Ok(Some(s)) = child.try_wait() {
+                return s.code().is_some() || s.signal().is_some();
+            }
+
+            #[cfg(target_family = "windows")]
+            if let Ok(Some(s)) = child.try_wait() {
+                return s.code().is_some();
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            count -= 1;
+        }
+
+        false
     }
 }
 
@@ -1376,6 +1551,104 @@ fn ignored_protocols(name: &str) -> bool {
     name.eq("geninfo") || name.eq("fake-field-wrapper")
 }
 
+#[cfg(feature = "async")]
+async fn parse_xml_async(
+    xml_reader: &mut quick_xml::Reader<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    filters: &[String],
+) -> Result<Option<Packet>> {
+    let mut buf = vec![];
+    let mut packet = Packet::new();
+
+    let mut protoname = None;
+
+    /// Create a new layer if required and add metadata to the given packet.
+    fn _add_metadata(packet: &mut Packet, metadata: Metadata) -> Result<()> {
+        // Create a new layer if the field's protocol does not exist yet as a layer.
+        if let Some(proto) = metadata.name().split('.').next() {
+            packet.push_if_not_exist(proto.to_owned());
+        }
+
+        if let Some(layer) = packet.last_layer_mut() {
+            layer.add(metadata);
+        } else {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "Cannot find protocol name to push a metadata",
+            ));
+        }
+
+        Ok(())
+    }
+
+    loop {
+        // THIS IS THE ONLY DIFFERENCE WITH parse_xml() FUNCTION
+        match xml_reader.read_event_into_async(&mut buf).await {
+            Ok(Event::Start(ref e)) => {
+                if b"proto" == e.name().as_ref() {
+                    let proto = rtshark_attr_by_name(e, b"name")?;
+                    protoname = Some(proto.to_owned());
+
+                    if !ignored_protocols(proto.as_str()) {
+                        packet.push(proto);
+                    }
+                }
+
+                if b"field" == e.name().as_ref() {
+                    if let Some(metadata) = rtshark_build_metadata(e, filters)? {
+                        _add_metadata(&mut packet, metadata)?;
+                    }
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                if b"field" == e.name().as_ref() {
+                    if let Some(name) = protoname.as_ref() {
+                        if name == "geninfo" {
+                            // Put geninfo metadata in packet's object (timestamp ...).
+                            geninfo_metadata(e, &mut packet)?;
+                        } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
+                            if name == "fake-field-wrapper" {
+                                let proto_from_name =
+                                    metadata.name().split('.').next().unwrap_or("");
+                                let proto_layer = packet
+                                    .last_layer_mut()
+                                    .filter(|layer| layer.name == proto_from_name);
+                                if let Some(layer) = proto_layer {
+                                    layer.add(metadata);
+                                }
+                            } else {
+                                // We can unwrap because we must have a layer : it was pushed in Event::Start
+                                packet.last_layer_mut().unwrap().add(metadata);
+                            }
+                        }
+                    } else if let Some(metadata) = rtshark_build_metadata(e, filters)? {
+                        _add_metadata(&mut packet, metadata)?;
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => match e.name().as_ref() {
+                b"packet" => return Ok(Some(packet)),
+                b"proto" => protoname = None,
+                _ => (),
+            },
+
+            Ok(Event::Eof) => {
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "xml parsing error: {} at tshark output offset {}",
+                        e,
+                        xml_reader.buffer_position()
+                    ),
+                ));
+            }
+            Ok(_) => {}
+        }
+    }
+}
+
 /// Main parser function used to decode XML output from tshark
 fn parse_xml<B: BufRead>(
     xml_reader: &mut quick_xml::Reader<B>,
@@ -1427,6 +1700,7 @@ fn parse_xml<B: BufRead>(
     }
 
     loop {
+        // NOTE TO SELF: The next thing is probably to make an asyc version of xml_reader. So it would ue the read_event_into_async method.
         match xml_reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
                 // Here we have "packet" and "proto" and sometimes "field" tokens. Only "proto" and "field" are interesting today.
@@ -1516,6 +1790,58 @@ mod tests {
     use serial_test::serial;
 
     use super::*;
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn async_sandbox() {
+        let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("test_tls.pcap");
+        assert!(pcap_path.exists());
+
+        let mut rtshark = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .capture_filter("tcp")
+            .spawn_async()
+            .unwrap();
+
+        let mut tls_counter = 0;
+        let mut time_counter = 0;
+        let mut running = true;
+
+        while running {
+            tokio::join!(
+                // Process 1: Try to read a packet
+                async {
+                    match rtshark.read().await {
+                        Ok(Some(packet)) => {
+                            if let Some(_tls) = packet.layer_name("tls") {
+                                tls_counter += 1;
+                                println!("TLS packet count: {tls_counter}");
+                            }
+                        }
+                        Ok(None) => {
+                            println!("End of capture stream");
+                            running = false;
+                        }
+                        Err(e) => {
+                            eprintln!("Error parsing tshark output: {e}");
+                            running = false;
+                        }
+                    }
+                },
+                // Process 2: Do something else that takes time (e.g., print a message every interval of time)
+                async {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    time_counter += 1;
+                    println!("Time elapsed: {time_counter} seconds");
+                }
+            );
+        }
+
+        assert_eq!(tls_counter, 27);
+        assert!(time_counter >= 49);
+    }
 
     #[test]
     fn test_parse_single_proto_metadata() {
