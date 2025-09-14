@@ -923,12 +923,17 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// # Example
     /// ```
     /// use tokio;
+    ///    use rtshark::RTSharkBuilder;
     /// #[tokio::main]
     /// async fn main() -> std::io::Result<()> {
-    ///    use rtshark::RTSharkBuilder;
+    ///         let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    ///             .join("src")
+    ///             .join("test_tls.pcap");
+    ///         assert!(pcap_path.exists());
+    ///
     ///         let mut rtshark = RTSharkBuilder::builder()
-    ///             .input_path("/path/to/file.pcap")
-    ///             .capture_filter("tcp")
+    ///             .input_path(pcap_path.to_str().unwrap())
+    ///            .capture_filter("tcp")
     ///             .spawn_async()
     ///             .unwrap();
     ///
@@ -1793,7 +1798,7 @@ mod tests {
 
     #[cfg(feature = "async")]
     #[tokio::test]
-    async fn async_sandbox() {
+    async fn test_async_read() {
         let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("test_tls.pcap");
