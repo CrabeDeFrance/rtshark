@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build
-    - name: Install tshark
-      run: sudo apt-get install -y tshark
-    - name: Run doc tests
-      run: cargo test --doc
-    - name: Run unit tests
-      run: cargo test --lib -- --test-threads=1
+      - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build --features async
+      - name: Install tshark
+        run: sudo apt-get install -y tshark
+      - name: Run doc tests
+        run: cargo test --doc --features async
+      - name: Run unit tests
+        run: cargo test --lib --features async -- --test-threads=1
