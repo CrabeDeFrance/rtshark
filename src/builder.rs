@@ -441,6 +441,19 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
+    fn prepare_args_unbuffered(&self) -> Result<Vec<&str>> {
+        let mut tshark_params = self.prepare_args()?;
+
+        tshark_params.extend(&[
+            // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
+            // This information is equivalent to the packet details printed with the -V option.
+            "-Tpdml", // -l activate unbuffered mode, useful to print packets as they come
+            "-l",
+        ]);
+
+        Ok(tshark_params)
+    }
+
     /// Starts a new TShark process given the provided parameters, mapped to a new [RTShark] instance.
     /// This function may fail if tshark binary is not in PATH or if there are some issues with input_path parameter : not found or no read permission...
     /// In other cases (output_path not writable, invalid syntax for pcap_filter or display_filter),
@@ -453,28 +466,9 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// let tshark: std::io::Result<rtshark::RTShark> = builder.spawn();
     /// ```
     pub fn spawn(&self) -> Result<RTShark> {
-        let mut tshark_params = self.prepare_args()?;
-
-        tshark_params.extend(&[
-            // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
-            // This information is equivalent to the packet details printed with the -V option.
-            "-Tpdml", // -l activate unbuffered mode, useful to print packets as they come
-            "-l",
-        ]);
-
-        let mut tshark_child = self.spawn_tshark(&tshark_params)?;
-
-        let buf_reader = BufReader::new(tshark_child.stdout.take().unwrap());
-        let stderr = BufReader::new(tshark_child.stderr.take().unwrap());
-
-        let reader = quick_xml::Reader::from_reader(buf_reader);
-
-        Ok(RTShark::new(
-            tshark_child,
-            reader,
-            stderr,
-            self.metadata_blacklist.clone(),
-        ))
+        let tshark_params = self.prepare_args_unbuffered()?;
+        let tshark_child = self.spawn_tshark(&tshark_params)?;
+        Ok(RTShark::new(tshark_child, self.metadata_blacklist.clone()))
     }
 
     /// Starts an asynchronous TShark process given the provided parameters, mapped to a new [RTSharkAsync] instance.
@@ -537,22 +531,11 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// ```
     #[cfg(feature = "async")]
     pub fn spawn_async(&self) -> Result<crate::RTSharkAsync> {
-        let mut tshark_params = self.prepare_args()?;
-        // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
-        // This information is equivalent to the packet details printed with the -V option.
-        // -l activate unbuffered mode, useful to print packets as they come
-        tshark_params.extend(&["-Tpdml", "-l"]);
-
-        let mut tshark_child = self.spawn_tshark_async(&tshark_params)?;
-        let buf_reader = tokio::io::BufReader::new(tshark_child.stdout.take().unwrap());
-        let stderr = tokio::io::BufReader::new(tshark_child.stderr.take().unwrap());
-
-        let reader = quick_xml::Reader::from_reader(buf_reader);
+        let tshark_params = self.prepare_args_unbuffered()?;
+        let tshark_child = self.spawn_tshark_async(&tshark_params)?;
 
         Ok(crate::RTSharkAsync::new(
             tshark_child,
-            reader,
-            stderr,
             self.metadata_blacklist.clone(),
         ))
     }

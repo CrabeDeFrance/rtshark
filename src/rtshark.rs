@@ -25,12 +25,11 @@ pub struct RTShark {
 
 impl RTShark {
     /// create a new RTShark instance from a successful builder call.
-    pub(crate) fn new(
-        process: Child,
-        parser: quick_xml::Reader<BufReader<ChildStdout>>,
-        stderr: BufReader<ChildStderr>,
-        filters: Vec<String>,
-    ) -> Self {
+    pub(crate) fn new(mut process: Child, filters: Vec<String>) -> Self {
+        let buf_reader = BufReader::new(process.stdout.take().unwrap());
+        let stderr = BufReader::new(process.stderr.take().unwrap());
+        let parser = quick_xml::Reader::from_reader(buf_reader);
+
         RTShark {
             process: Some(process),
             parser,
