@@ -485,7 +485,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// # Example
     /// ```
     /// use tokio;
-    ///    use rtshark::RTSharkBuilder;
+    /// use rtshark::RTSharkBuilder;
     /// #[tokio::main]
     /// async fn main() -> std::io::Result<()> {
     ///         let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
