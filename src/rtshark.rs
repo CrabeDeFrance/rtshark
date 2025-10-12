@@ -1,4 +1,9 @@
-use crate::{packet::Packet, xml::parse_xml};
+use quick_xml::Reader;
+
+use crate::{
+    packet::Packet,
+    xml::{ParserResult, RTSharkParser},
+};
 use std::io::{BufRead, BufReader, Result};
 #[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
@@ -70,7 +75,7 @@ impl RTShark {
     pub fn read(&mut self) -> Result<Option<Packet>> {
         let xml_reader = &mut self.parser;
 
-        let msg = parse_xml(xml_reader, &self.filters);
+        let msg = RTShark::parse(xml_reader, &self.filters);
         if let Ok(ref msg) = msg {
             let done = match msg {
                 None => {
@@ -97,6 +102,29 @@ impl RTShark {
         }
 
         msg
+    }
+
+    pub(crate) fn parse<B: BufRead>(
+        reader: &mut Reader<B>,
+        filters: &[String],
+    ) -> std::io::Result<Option<Packet>> {
+        let mut parser = RTSharkParser::new();
+        let mut buf = vec![];
+
+        loop {
+            let event = reader.read_event_into(&mut buf).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("cant parse xml: {e}"),
+                )
+            })?;
+
+            match parser.parse(event, filters)? {
+                ParserResult::Continue => (),
+                ParserResult::Packet(packet) => return Ok(Some(packet)),
+                ParserResult::Eof => return Ok(None),
+            }
+        }
     }
 
     /// Kill the running TShark process associated to this rtshark instance.
