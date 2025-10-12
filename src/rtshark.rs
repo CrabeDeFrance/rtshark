@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn test_rtshark_input_pcap_decode_as() {
         // 0. prepare pcap
-        let pcap = include_bytes!("rtp.pcap");
+        let pcap = include_bytes!("../assets/rtp.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap_display_filter() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap_blacklist() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap_whitelist() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap_multiple_whitelist() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap_whitelist_multiple_layer() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -466,7 +466,7 @@ mod tests {
     // this test may fail if executed in parallel with other tests. Run it with --test-threads=1 option.
     #[test]
     fn test_rtshark_input_pcap_whitelist_missing_attr() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -493,7 +493,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_fifo() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir
         let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
@@ -535,7 +535,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_multiple_fifo() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir
         let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
@@ -596,7 +596,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_pcap_filter_pcap() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir
         let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
@@ -737,7 +737,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_fifo_opened_then_closed() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir
         let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
@@ -816,7 +816,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_set_options() {
-        let pcap = include_bytes!("tcp_fragmentation.pcap");
+        let pcap = include_bytes!("../assets/tcp_fragmentation.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -882,7 +882,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_set_disabled_protocols() {
-        let pcap = include_bytes!("tcp_fragmentation.pcap");
+        let pcap = include_bytes!("../assets/tcp_fragmentation.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -915,7 +915,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_set_enabled_protocols() {
-        let pcap = include_bytes!("tcp_fragmentation.pcap");
+        let pcap = include_bytes!("../assets/tcp_fragmentation.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -980,7 +980,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_input_pcap_output_pcap() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -1035,7 +1035,7 @@ mod tests {
     #[cfg(target_family = "unix")]
     #[test]
     fn test_rtshark_input_fifo_output_pcap() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir
         let tmp_dir = tempdir::TempDir::new("test_fifo").unwrap();
@@ -1093,7 +1093,7 @@ mod tests {
     #[test]
     #[serial] // Run test serially to limit check to multiple spawns in test
     fn test_rtshark_multiple_spawn_pcap() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -1136,7 +1136,7 @@ mod tests {
 
     #[test]
     fn test_rtshark_timestamp_micros() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -1168,8 +1168,8 @@ mod tests {
 
     #[test]
     fn test_rtshark_tls_keylogfile_pcap() {
-        let pcap = include_bytes!("test_tls.pcap");
-        let keylog = include_bytes!("test_tlskeylogfile.txt");
+        let pcap = include_bytes!("../assets/test_tls.pcap");
+        let keylog = include_bytes!("../assets/test_tlskeylogfile.txt");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -1233,7 +1233,7 @@ mod tests {
 
     #[test]
     fn test_reassembled_tcp() {
-        let pcap = include_bytes!("tcp_fragmentation.pcap");
+        let pcap = include_bytes!("../assets/tcp_fragmentation.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
@@ -1275,7 +1275,7 @@ mod tests {
 
     #[test]
     fn test_batch() {
-        let pcap = include_bytes!("test.pcap");
+        let pcap = include_bytes!("../assets/test.pcap");
 
         // create temp dir and copy pcap in it
         let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();

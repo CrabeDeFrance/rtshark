@@ -1,5 +1,5 @@
-use crate::packet::Packet;
-use std::io::{BufRead, Error, ErrorKind, Result};
+use crate::{packet::Packet, xml::parse_xml_async};
+use std::io::{Error, ErrorKind, Result};
 #[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
 use tokio::io::AsyncBufReadExt;
@@ -13,7 +13,7 @@ pub struct RTSharkAsync {
 }
 
 impl RTSharkAsync {
-    fn new(
+    pub(crate) fn new(
         process: tokio::process::Child,
         parser: quick_xml::Reader<tokio::io::BufReader<tokio::process::ChildStdout>>,
         stderr: tokio::io::BufReader<tokio::process::ChildStderr>,
@@ -77,13 +77,15 @@ impl RTSharkAsync {
 }
 #[cfg(test)]
 mod tests {
+    use crate::RTSharkBuilder;
 
-    #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_async_read() {
         let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
+            .join("assets")
             .join("test_tls.pcap");
+
+        println!("{pcap_path:?}");
         assert!(pcap_path.exists());
 
         let mut rtshark = RTSharkBuilder::builder()
