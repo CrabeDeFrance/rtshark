@@ -489,7 +489,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// #[tokio::main]
     /// async fn main() -> std::io::Result<()> {
     ///         let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-    ///             .join("src")
+    ///             .join("assets")
     ///             .join("test_tls.pcap");
     ///         assert!(pcap_path.exists());
     ///
@@ -536,7 +536,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     /// }
     /// ```
     #[cfg(feature = "async")]
-    pub fn spawn_async(&self) -> Result<RTSharkAsync> {
+    pub fn spawn_async(&self) -> Result<crate::RTSharkAsync> {
         let mut tshark_params = self.prepare_args()?;
         // Packet Details Markup Language, an XML-based format for the details of a decoded packet.
         // This information is equivalent to the packet details printed with the -V option.
@@ -549,7 +549,7 @@ impl<'a> RTSharkBuilderReady<'a> {
 
         let reader = quick_xml::Reader::from_reader(buf_reader);
 
-        Ok(RTSharkAsync::new(
+        Ok(crate::RTSharkAsync::new(
             tshark_child,
             reader,
             stderr,
@@ -610,7 +610,9 @@ impl<'a> RTSharkBuilderReady<'a> {
         };
 
         tshark_child.map_err(|e| match e.kind() {
-            ErrorKind::NotFound => Error::new(e.kind(), format!("Unable to find tshark: {}", e)),
+            std::io::ErrorKind::NotFound => {
+                std::io::Error::new(e.kind(), format!("Unable to find tshark: {e}"))
+            }
             _ => e,
         })
     }

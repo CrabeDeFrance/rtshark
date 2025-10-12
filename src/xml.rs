@@ -199,7 +199,7 @@ pub(crate) async fn parse_xml_async(
                                     metadata.name().split('.').next().unwrap_or("");
                                 let proto_layer = packet
                                     .last_layer_mut()
-                                    .filter(|layer| layer.name == proto_from_name);
+                                    .filter(|layer| layer.name() == proto_from_name);
                                 if let Some(layer) = proto_layer {
                                     layer.add(metadata);
                                 }
