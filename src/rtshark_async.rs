@@ -75,3 +75,58 @@ impl RTSharkAsync {
         false
     }
 }
+#[cfg(test)]
+mod tests {
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn test_async_read() {
+        let pcap_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("test_tls.pcap");
+        assert!(pcap_path.exists());
+
+        let mut rtshark = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .capture_filter("tcp")
+            .spawn_async()
+            .unwrap();
+
+        let mut tls_counter = 0;
+        let mut time_counter = 0;
+        let mut running = true;
+
+        while running {
+            tokio::join!(
+                // Process 1: Try to read a packet
+                async {
+                    match rtshark.read().await {
+                        Ok(Some(packet)) => {
+                            if let Some(_tls) = packet.layer_name("tls") {
+                                tls_counter += 1;
+                                println!("TLS packet count: {tls_counter}");
+                            }
+                        }
+                        Ok(None) => {
+                            println!("End of capture stream");
+                            running = false;
+                        }
+                        Err(e) => {
+                            eprintln!("Error parsing tshark output: {e}");
+                            running = false;
+                        }
+                    }
+                },
+                // Process 2: Do something else that takes time (e.g., print a message every interval of time)
+                async {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    time_counter += 1;
+                    println!("Time elapsed: {time_counter} seconds");
+                }
+            );
+        }
+
+        assert_eq!(tls_counter, 27);
+        assert!(time_counter >= 49);
+    }
+}

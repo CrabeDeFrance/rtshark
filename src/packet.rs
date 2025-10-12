@@ -122,6 +122,11 @@ impl Packet {
     pub fn iter(&self) -> impl Iterator<Item = &Layer> {
         self.layers.iter()
     }
+
+    /// Return the list of [Layer] for this packet.
+    pub fn layers(&self) -> &Vec<Layer> {
+        &self.layers
+    }
 }
 
 impl IntoIterator for Packet {
@@ -153,3 +158,5 @@ impl IntoIterator for Packet {
         self.layers.into_iter()
     }
 }
+#[cfg(test)]
+mod tests {}

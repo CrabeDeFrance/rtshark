@@ -135,3 +135,5 @@ impl Metadata {
         &mut self.position
     }
 }
+#[cfg(test)]
+mod tests {}
