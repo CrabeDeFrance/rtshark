@@ -1,3 +1,9 @@
+# 4.0.0 (2025-10-12)
+
+## Features
+
+- Add new async API, thanks to "TheMagicNacho" (#29). It includes a major refactoring, so major number moved to 4.0.
+
 # 3.2.0 (2025-05-25)
 
 ## Features
