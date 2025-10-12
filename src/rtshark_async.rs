@@ -19,12 +19,11 @@ pub struct RTSharkAsync {
 }
 
 impl RTSharkAsync {
-    pub(crate) fn new(
-        process: tokio::process::Child,
-        parser: quick_xml::Reader<tokio::io::BufReader<tokio::process::ChildStdout>>,
-        stderr: tokio::io::BufReader<tokio::process::ChildStderr>,
-        filters: Vec<String>,
-    ) -> Self {
+    pub(crate) fn new(mut process: tokio::process::Child, filters: Vec<String>) -> Self {
+        let buf_reader = tokio::io::BufReader::new(process.stdout.take().unwrap());
+        let stderr = tokio::io::BufReader::new(process.stderr.take().unwrap());
+        let parser = quick_xml::Reader::from_reader(buf_reader);
+
         RTSharkAsync {
             process: Some(process),
             parser,
