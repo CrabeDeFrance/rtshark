@@ -370,3 +370,505 @@ pub(crate) fn parse_xml<B: BufRead>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::BufReader;
+
+    use crate::xml::parse_xml;
+
+    #[test]
+    fn test_parse_single_proto_metadata() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+           <field name="frame.time" show="test time" pos="0" size="0" showname="test time display"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 1);
+        for layer in pkt.layers() {
+            for m in layer.iter() {
+                assert!(m.name().eq("frame.time"));
+                assert!(m.value().eq("test time"));
+                assert_eq!(m.display(), Some("test time display"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_missing_optional_size() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+          <field name="frame.time" show="test time" pos="0" showname="test time display"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 1);
+    }
+
+    #[test]
+    fn test_parse_missing_optional_pos() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+          <field name="frame.time" show="test time" size="0" showname="test time display"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 1);
+    }
+
+    #[test]
+    fn test_parse_missing_optional_display() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+          <field name="frame.time" show="test time" pos="0" size="0" />
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 1);
+    }
+
+    #[test]
+    fn test_parse_missing_mandatory_name() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+          <field show="test time" pos="0" size="0" showname="test time display"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]);
+
+        match msg {
+            Err(_) => (),
+            _ => panic!("invalid result"),
+        }
+    }
+
+    #[test]
+    fn test_parse_all_value_fields_available() {
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
+        // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+        // try first "show", then "value", finally "showname"
+
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="icmp">
+           <field name="data" show="data is aa" value="0a" showname="data: a0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
+
+        let icmp = pkt.layer_name("icmp").unwrap();
+        let data = icmp.metadata("data").unwrap();
+        assert!(data.value().eq("data is aa"));
+        assert!(data.raw_value().eq("0a"));
+        assert_eq!(data.display(), Some("data: a0"));
+    }
+
+    #[test]
+    fn test_parse_missing_show_attribute() {
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
+        // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+        // try first "show", then "value", finally "showname"
+
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="icmp">
+           <field name="data" value="0a" showname="data: a0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
+
+        let icmp = pkt.layer_name("icmp").unwrap();
+        let data = icmp.metadata("data").unwrap();
+        assert!(data.value().eq("0a"));
+        assert!(data.raw_value() == data.value());
+    }
+
+    #[test]
+    fn test_parse_missing_show_and_value_attributes() {
+        // Issue #1 : uses pyshark-like algorithm to display the best 'value' for this field
+        // https://github.com/KimiNewt/pyshark/blob/master/src/pyshark/packet/fields.py#L14
+        // try first "show", then "value", finally "showname"
+
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="icmp">
+           <field name="data" showname="data: a0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let pkt = parse_xml(&mut reader, &[]).unwrap().unwrap();
+
+        let icmp = pkt.layer_name("icmp").unwrap();
+        let data = icmp.metadata("data").unwrap();
+        assert!(data.value().eq("data: a0"));
+        assert!(data.raw_value() == data.value());
+    }
+
+    #[test]
+    fn test_parse_missing_any_show() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+          <field name="frame.time" pos="0" size="0"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]);
+        match msg {
+            Err(_) => (),
+            _ => panic!("invalid result"),
+        }
+    }
+
+    const XML_TCP: &str = r#"
+    <pdml>
+     <packet>
+      <proto name="frame">
+       <field name="frame.time" show="Mar  5, 2021 08:49:52.736275000 CET"/>
+      </proto>
+      <proto name="ip">
+       <field name="ip.src" show="1.1.1.1" />
+       <field name="ip.dst" show="1.1.1.2" />
+      </proto>
+      <proto name="tcp">
+       <field name="tcp.srcport" show="52796" value="ce3c"/>
+       <field name="tcp.dstport" show="5432" value="1538"/>
+       <field name="tcp.seq_raw" show="1963007432" value="75011dc8"/>
+       <field name="tcp.stream" show="4"/>
+      </proto>
+     </packet>
+    </pdml>"#;
+
+    #[test]
+    fn test_access_packet_into_iter() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 3);
+
+        let mut iter = pkt.into_iter();
+        let frame = iter.next().unwrap();
+        assert!(frame.name().eq("frame"));
+        let ip = iter.next().unwrap();
+        assert!(ip.name().eq("ip"));
+        let tcp = iter.next().unwrap();
+        assert!(tcp.name().eq("tcp"));
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_access_packet_iter() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 3);
+
+        let mut iter = pkt.iter();
+        let frame = iter.next().unwrap();
+        assert!(frame.name().eq("frame"));
+        let ip = iter.next().unwrap();
+        assert!(ip.name().eq("ip"));
+        let tcp = iter.next().unwrap();
+        assert!(tcp.name().eq("tcp"));
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_access_layer_index() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 3);
+
+        assert!(pkt.layer_index(0).unwrap().name().eq("frame"));
+        assert!(pkt.layer_index(1).unwrap().name().eq("ip"));
+        assert!(pkt.layer_index(2).unwrap().name().eq("tcp"));
+
+        assert!(pkt.layer_index(3).is_none());
+    }
+
+    #[test]
+    fn test_access_layer_name() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 3);
+
+        assert!(pkt.layer_name("frame").unwrap().name().eq("frame"));
+        assert!(pkt.layer_name("ip").unwrap().name().eq("ip"));
+        assert!(pkt.layer_name("tcp").unwrap().name().eq("tcp"));
+
+        assert!(pkt.layer_name("udp").is_none());
+    }
+
+    #[test]
+    fn test_access_layer_name_with_tunnel() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="frame">
+           <field name="frame.time" show="Mar  5, 2021 08:49:52.736275000 CET"/>
+          </proto>
+          <proto name="ip">
+           <field name="ip.src" show="10.215.215.9" />
+           <field name="ip.dst" show="10.215.215.10" />
+          </proto>
+          <proto name="ip">
+           <field name="ip.src" show="10.10.215.9" />
+           <field name="ip.dst" show="10.10.215.10" />
+          </proto>
+          <proto name="tcp">
+           <field name="tcp.srcport" show="52796" value="ce3c"/>
+           <field name="tcp.dstport" show="5432" value="1538"/>
+           <field name="tcp.seq_raw" show="1963007432" value="75011dc8"/>
+           <field name="tcp.stream" show="4"/>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        assert_eq!(pkt.layers().len(), 4);
+
+        assert!(pkt.layer_name("frame").unwrap().name().eq("frame"));
+        assert!(pkt.layer_name("ip").unwrap().name().eq("ip"));
+        assert!(pkt.layer_name("ip").unwrap().index() == 1usize);
+        assert!(pkt.layer_index(1).unwrap().name().eq("ip"));
+        assert!(pkt.layer_index(2).unwrap().name().eq("ip"));
+        assert!(pkt.layer_name("tcp").unwrap().name().eq("tcp"));
+
+        assert!(pkt.layer_name("udp").is_none());
+    }
+
+    #[test]
+    fn test_access_layer_iter() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        let mut iter = ip.iter();
+        assert!(iter.next().unwrap().name().eq("ip.src"));
+        assert!(iter.next().unwrap().name().eq("ip.dst"));
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_access_layer_into_iter() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap().clone();
+        let mut iter = ip.into_iter();
+        assert!(iter.next().unwrap().name().eq("ip.src"));
+        assert!(iter.next().unwrap().name().eq("ip.dst"));
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_access_layer_metadata() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &[]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        let src = ip.metadata("ip.src").unwrap();
+        assert!(src.value().eq("1.1.1.1"));
+
+        let dst = ip.metadata("ip.dst").unwrap();
+        assert!(dst.value().eq("1.1.1.2"));
+    }
+
+    #[test]
+    fn test_parser_filter_metadata() {
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
+
+        let msg = parse_xml(&mut reader, &["ip.src".to_string()]).unwrap();
+        let pkt = match msg {
+            Some(p) => p,
+            _ => panic!("invalid Output type"),
+        };
+
+        let ip = pkt.layer_name("ip").unwrap();
+        assert!(ip.metadata("ip.src").is_none());
+        assert!(ip.metadata("ip.dst").unwrap().value().eq("1.1.1.2"));
+    }
+
+    #[test]
+    fn test_parser_multiple_packets() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="tcp"></proto>
+         </packet>
+         <packet>
+          <proto name="udp"></proto>
+         </packet>
+         <packet>
+          <proto name="igmp"></proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+        match parse_xml(&mut reader, &[]).unwrap() {
+            Some(p) => assert!(p.layer_name("tcp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+        match parse_xml(&mut reader, &[]).unwrap() {
+            Some(p) => assert!(p.layer_name("udp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+        match parse_xml(&mut reader, &[]).unwrap() {
+            Some(p) => assert!(p.layer_name("igmp").is_some()),
+            _ => panic!("invalid Output type"),
+        }
+        match parse_xml(&mut reader, &[]).unwrap() {
+            None => (),
+            _ => panic!("invalid Output type"),
+        }
+    }
+
+    #[test]
+    fn test_rtshark_field_in_field() {
+        let xml = r#"
+        <pdml>
+         <packet>
+          <proto name="btcommon">
+            <field name="btcommon.eir_ad.entry.data" showname="Data: <data>" size="8" pos="39" show="<some data>" value="<some data>">
+              <field name="_ws.expert" showname="Expert Info (Note/Undecoded): Undecoded" size="0" pos="39">
+                <field name="btcommon.eir_ad.undecoded" showname="Undecoded" size="0" pos="0" show="" value=""/>
+                <field name="_ws.expert.message" showname="Message: Undecoded" hide="yes" size="0" pos="0" show="Undecoded"/>
+                <field name="_ws.expert.severity" showname="Severity level: Note" size="0" pos="0" show="4194304"/>
+                <field name="_ws.expert.group" showname="Group: Undecoded" size="0" pos="0" show="83886080"/>
+              </field>
+            </field>
+          </proto>
+         </packet>
+        </pdml>"#;
+
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
+        match parse_xml(&mut reader, &[]).unwrap() {
+            Some(p) => match p.layer_name("btcommon") {
+                Some(layer) => {
+                    layer
+                        .metadata("btcommon.eir_ad.entry.data")
+                        .unwrap_or_else(|| panic!("Missing btcommon.eir_ad.entry.data"));
+
+                    layer
+                        .metadata("btcommon.eir_ad.undecoded")
+                        .unwrap_or_else(|| panic!("Missing btcommon.eir_ad.undecoded"));
+                }
+                None => panic!("missing protocol"),
+            },
+            _ => panic!("invalid Output type"),
+        }
+    }
+}
