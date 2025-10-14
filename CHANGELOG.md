@@ -1,3 +1,9 @@
+# 4.0.1 (2025-10-14)
+
+## Fixes
+
+- Fix compilation with no-default-features (#33).
+
 # 4.0.0 (2025-10-12)
 
 ## Features
@@ -43,9 +49,9 @@
 ## Features
 
 - Extract relevant protocol metadata from virtual layer 'fake-field-wrapper' (Thanks to "lrstewart" #16)
-This is needed to extract tcp.reassembled.data.
+  This is needed to extract tcp.reassembled.data.
 - Add raw_value metadata API to get access to "value" XML attribute (Thanks to "lrstewart" #17)
-This feature may decrease performance because "raw" values are bigger than usual.
+  This feature may decrease performance because "raw" values are bigger than usual.
 - Add support for multiple interfaces (#15)
 
 ## Fixes
@@ -63,7 +69,7 @@ This feature may decrease performance because "raw" values are bigger than usual
 ## Features
 
 - New API metadata_whitelist (Thanks to "eli").
-This improves a lot TShark speed.
+  This improves a lot TShark speed.
 
 # 2.6.0 (2023-08-15)
 
@@ -76,12 +82,12 @@ This improves a lot TShark speed.
 ## Features
 
 - Add new API timestamp_micros (Thanks to "vvv")
-Similar to Packet.sniff_time in pyshark.
+  Similar to Packet.sniff_time in pyshark.
 
 ## Fixes
 
 - Update dependencies to their latest version
-And fix patch level for chrono due to a security issue before 0.4.20.
+  And fix patch level for chrono due to a security issue before 0.4.20.
 
 # 2.4.0 (2023-03-06)
 
