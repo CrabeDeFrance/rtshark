@@ -2,16 +2,15 @@ name: Windows compilation and tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: windows-2025
 
     steps:
@@ -19,8 +18,10 @@ jobs:
         shell: powershell
         run: choco install -y wireshark
       - uses: actions/checkout@v3
-      - name: Build
-        run: cargo build --features async --verbose
+      - name: Install cargo hack
+        run: cargo install cargo-hack
+      - name: Build all features
+        run: cargo hack check --each-feature --no-dev-deps
       - name: Check where is thshark
         run: dir "C:\Program Files\Wireshark"
     # unit test currently fails with this error : `Err` value: Custom { kind: NotFound, error: "Unable to find tshark: program not found" }

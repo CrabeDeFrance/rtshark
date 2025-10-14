@@ -2,25 +2,26 @@ name: Ubuntu compilation and tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
-      - name: Build
-        run: cargo build --features async
+      - name: Install cargo hack
+        run: cargo install cargo-hack
+      - name: Build all features
+        run: cargo hack check --each-feature --no-dev-deps
       - name: Install tshark
         run: sudo apt-get install -y tshark
       - name: Run doc tests
-        run: cargo test --doc --features async
+        run: cargo hack test --each-feature --doc
       - name: Run unit tests
-        run: cargo test --lib --features async -- --test-threads=1
+        run: cargo hack test --each-feature --lib -- --test-threads=1
