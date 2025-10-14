@@ -15,7 +15,7 @@ exclude = ["/.github"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["quick-xml"]
+default = []
 async = ["tokio", "quick-xml/async-tokio"]
 
 [dependencies]
@@ -27,7 +27,7 @@ tokio = { version = "1.45", features = [
 ], optional = true }
 chrono = { version = "0.4", default-features = false }
 semver = "1"
-quick-xml = { version = "0.38", optional = true }
+quick-xml = { version = "0.38" }
 
 [dev-dependencies]
 libc = "0.2"
