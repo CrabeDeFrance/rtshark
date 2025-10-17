@@ -78,6 +78,7 @@ impl<'a> RTSharkBuilder {
             enabled_protocols: vec![],
             output_path: "",
             decode_as: vec![],
+            profile: None,
         }
     }
 
@@ -177,6 +178,8 @@ pub struct RTSharkBuilderReady<'a> {
     output_path: &'a str,
     /// decode_as : let TShark to decode as this expression
     decode_as: Vec<&'a str>,
+    /// profile : change TShark configuration profile
+    profile: Option<&'a str>,
 }
 
 impl<'a> RTSharkBuilderReady<'a> {
@@ -441,6 +444,24 @@ impl<'a> RTSharkBuilderReady<'a> {
         new
     }
 
+    /// Change configuration profile of TShark. This option sets -C command line argument.
+    ///
+    /// See <https://tshark.dev/packetcraft/arcana/profiles/> for more information on configuration profiles and how to use them.
+    ///
+    /// ### Example: Use one of the "Classic" preconfigured configuration profile.
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/my.pcap")
+    ///     .profile("Classic");
+    /// ```
+    #[must_use]
+    pub fn profile(&self, profile: &'a str) -> Self {
+        let mut new = self.clone();
+        new.profile = Some(profile);
+        new
+    }
+
     fn prepare_args_unbuffered(&self) -> Result<Vec<&str>> {
         let mut tshark_params = self.prepare_args()?;
 
@@ -700,6 +721,10 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["--enable-protocol", protocol]);
         }
 
+        if let Some(profile) = self.profile {
+            tshark_params.extend(&["-C", profile]);
+        }
+
         Ok(tshark_params)
     }
 }
@@ -707,11 +732,43 @@ impl<'a> RTSharkBuilderReady<'a> {
 #[cfg(test)]
 mod tests {
 
+    use std::io::Write;
+
     use crate::builder::RTSharkBuilder;
 
     #[test]
     fn test_tshark_version() {
         let builder = RTSharkBuilder::builder();
         builder.version().expect("Error getting tshark version");
+    }
+
+    #[test]
+    fn test_configuration_profile() {
+        let pcap = include_bytes!("../assets/test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .profile("Classic");
+        let args = builder.prepare_args().unwrap();
+        assert_eq!(
+            args,
+            vec![
+                "-r",
+                pcap_path.to_str().unwrap(),
+                "-n",
+                "-Q",
+                "-C",
+                "Classic"
+            ]
+        );
+
+        tmp_dir.close().expect("Error deleting fifo dir");
     }
 }
