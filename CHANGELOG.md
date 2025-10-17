@@ -1,3 +1,9 @@
+# 4.1.0 (2025-10-17)
+
+## Features
+
+- Add a new API to set a configuration profile (#30).
+
 # 4.0.1 (2025-10-14)
 
 ## Fixes
