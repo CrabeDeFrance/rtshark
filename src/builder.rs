@@ -78,6 +78,7 @@ impl<'a> RTSharkBuilder {
             enabled_protocols: vec![],
             output_path: "",
             decode_as: vec![],
+            plugins: vec![],
             profile: None,
         }
     }
@@ -178,6 +179,8 @@ pub struct RTSharkBuilderReady<'a> {
     output_path: &'a str,
     /// decode_as : let TShark to decode as this expression
     decode_as: Vec<&'a str>,
+    /// plugins : let TShark use a lua plugin
+    plugins: Vec<String>,
     /// profile : change TShark configuration profile
     profile: Option<&'a str>,
 }
@@ -441,6 +444,24 @@ impl<'a> RTSharkBuilderReady<'a> {
     pub fn decode_as(&self, expr: &'a str) -> Self {
         let mut new = self.clone();
         new.decode_as.push(expr);
+        new
+    }
+
+    /// Let TShark use a specific lua plugin.
+    /// 
+    /// See <https://wiki.wireshark.org/Lua/Examples#user-content-a-custom-file-reader--writer-tutorial-script> for more details.
+    /// 
+    /// 
+    /// ### Example: Prepare an instance of TShark to use a specific plugin
+    ///
+    /// ```
+    /// let builder = rtshark::RTSharkBuilder::builder()
+    ///     .input_path("/tmp/in.pcap")
+    ///     .plugin("/tmp/plugin.lua");
+    /// ```
+    pub fn plugin(&self, plugin: &'a str) -> Self {
+        let mut new = self.clone();
+        new.plugins.push(format!("lua_script:{plugin}"));
         new
     }
 
@@ -725,6 +746,10 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["-C", profile]);
         }
 
+        for plugin in &self.plugins {
+            tshark_params.extend(&["-X", plugin])
+        }
+
         Ok(tshark_params)
     }
 }
@@ -766,6 +791,37 @@ mod tests {
                 "-Q",
                 "-C",
                 "Classic"
+            ]
+        );
+
+        tmp_dir.close().expect("Error deleting fifo dir");
+    }
+
+
+    #[test]
+    fn test_plugin() {
+        let pcap = include_bytes!("../assets/test.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .plugin("../assets/test.lua");
+        let args = builder.prepare_args().unwrap();
+        assert_eq!(
+            args,
+            vec![
+                "-r",
+                pcap_path.to_str().unwrap(),
+                "-n",
+                "-Q",
+                "-X",
+                "lua_script:../assets/test.lua"
             ]
         );
 
