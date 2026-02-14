@@ -1,3 +1,10 @@
+# 4.2.0 (2026-02-14)
+
+## Features
+
+- Add a new API to load lua plugins using -X (#37) thanks to Blenderwizard.
+- Update dependencies to their latest version
+
 # 4.1.0 (2025-10-17)
 
 ## Features

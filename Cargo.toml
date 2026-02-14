@@ -1,6 +1,6 @@
 [package]
 name = "rtshark"
-version = "4.1.0"
+version = "4.2.0"
 edition = "2021"
 authors = ["CrabeDeFrance"]
 license = "MIT OR Apache-2.0"
@@ -19,7 +19,7 @@ default = []
 async = ["tokio", "quick-xml/async-tokio"]
 
 [dependencies]
-tokio = { version = "1.45", features = [
+tokio = { version = "1", features = [
     "process",
     "rt-multi-thread",
     "time",
@@ -27,7 +27,7 @@ tokio = { version = "1.45", features = [
 ], optional = true }
 chrono = { version = "0.4", default-features = false }
 semver = "1"
-quick-xml = { version = "0.38" }
+quick-xml = { version = "0.39" }
 
 [dev-dependencies]
 libc = "0.2"
@@ -35,4 +35,4 @@ serial_test = "3"
 tempdir = "0.3"
 
 [target.'cfg(unix)'.dev-dependencies]
-nix = { version = "0.30", features = ["fs", "signal"] }
+nix = { version = "0.31", features = ["fs", "signal"] }
