@@ -1343,6 +1343,35 @@ mod tests {
     }
 
     #[test]
+    fn test_xml_parsing_stability() {
+        let pcap = include_bytes!("../assets/tcp_fragmentation.pcap");
+
+        // create temp dir and copy pcap in it
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("file.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // spawn tshark on it
+        let builder = RTSharkBuilder::builder().input_path(pcap_path.to_str().unwrap());
+
+        (0..20).for_each(|_| {
+            let mut rtshark = builder.spawn().unwrap();
+
+            // read packets
+            loop {
+                if rtshark.read().unwrap().is_none() {
+                    break;
+                }
+            }
+
+            rtshark.kill();
+            assert!(rtshark.pid().is_none());
+        });
+    }
+
+    #[test]
     fn test_tls_record_grouping() {
         let pcap = include_bytes!("../assets/test_tls.pcap");
 
