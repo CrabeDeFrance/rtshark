@@ -1,3 +1,9 @@
+# 4.2.1 (2026-02-17)
+
+## Features
+
+- Revert quick-xml dependencies to 0.38 since 0.39 seems to have an issue (#40).
+
 # 4.2.0 (2026-02-14)
 
 ## Features
