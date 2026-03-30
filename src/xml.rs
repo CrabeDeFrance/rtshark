@@ -24,7 +24,12 @@ impl RTSharkParser {
     }
 
     /// Main parser function used to decode XML output from tshark
-    pub(crate) fn parse(&mut self, event: Event<'_>, filters: &[String]) -> Result<ParserResult> {
+    pub(crate) fn parse(
+        &mut self,
+        event: Event<'_>,
+        blacklist: &[String],
+        whitelist: &[String],
+    ) -> Result<ParserResult> {
         // tshark pdml is something like : (default mode)
         //
         // <!-- You can find pdml2html.xsl in /usr/share/wireshark or at https://gitlab.com/wireshark/wireshark/-/raw/master/pdml2html.xsl. -->
@@ -62,7 +67,7 @@ impl RTSharkParser {
 
                 // There are cases where fields are mapped in fields. So check if there is any parent field and extract its metadata.
                 if b"field" == e.name().as_ref() {
-                    if let Some(metadata) = Self::rtshark_build_metadata(e, filters)? {
+                    if let Some(metadata) = Self::rtshark_build_metadata(e, blacklist, whitelist)? {
                         Self::add_metadata(&mut self.packet, metadata)?;
                     }
                 }
@@ -77,7 +82,9 @@ impl RTSharkParser {
                         if name == "geninfo" {
                             // Put geninfo metadata in packet's object (timestamp ...).
                             Self::geninfo_metadata(e, &mut self.packet)?;
-                        } else if let Some(metadata) = Self::rtshark_build_metadata(e, filters)? {
+                        } else if let Some(metadata) =
+                            Self::rtshark_build_metadata(e, blacklist, whitelist)?
+                        {
                             // Some dissectors place field items at the top level instead
                             // of inside a protocol. In these cases, in the PDML output the
                             // field items are placed inside a fake "<proto>" element named
@@ -101,7 +108,9 @@ impl RTSharkParser {
                                 self.packet.last_layer_mut().unwrap().add(metadata);
                             }
                         }
-                    } else if let Some(metadata) = Self::rtshark_build_metadata(e, filters)? {
+                    } else if let Some(metadata) =
+                        Self::rtshark_build_metadata(e, blacklist, whitelist)?
+                    {
                         Self::add_metadata(&mut self.packet, metadata)?;
                     }
                 }
@@ -188,7 +197,11 @@ impl RTSharkParser {
 
     /// Build a metadata using attributes available on this XML "field" tag.
     /// Sample XML line : <field name="frame.time" show="test time" pos="0" size="0" showname="test time display"/>
-    fn rtshark_build_metadata(tag: &BytesStart, filters: &[String]) -> Result<Option<Metadata>> {
+    fn rtshark_build_metadata(
+        tag: &BytesStart,
+        blacklist: &[String],
+        whitelist: &[String],
+    ) -> Result<Option<Metadata>> {
         let name = Self::rtshark_attr_by_name(tag, b"name")?;
 
         // skip "_ws.expert" info, not related to a packet metadata
@@ -196,8 +209,13 @@ impl RTSharkParser {
             return Ok(None);
         }
 
-        // skip data
-        if filters.contains(&name) {
+        // skip blacklisted fields
+        if blacklist.contains(&name) {
+            return Ok(None);
+        }
+
+        // skip fields not in the whitelist (when a whitelist is set)
+        if !whitelist.is_empty() && !whitelist.contains(&name) {
             return Ok(None);
         }
 
@@ -294,7 +312,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -323,7 +341,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -345,7 +363,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -367,7 +385,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -389,7 +407,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]);
+        let msg = RTShark::parse(&mut reader, &[], &[]);
 
         match msg {
             Err(_) => (),
@@ -414,7 +432,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = RTShark::parse(&mut reader, &[]).unwrap().unwrap();
+        let pkt = RTShark::parse(&mut reader, &[], &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -440,7 +458,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = RTShark::parse(&mut reader, &[]).unwrap().unwrap();
+        let pkt = RTShark::parse(&mut reader, &[], &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -465,7 +483,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let pkt = RTShark::parse(&mut reader, &[]).unwrap().unwrap();
+        let pkt = RTShark::parse(&mut reader, &[], &[]).unwrap().unwrap();
 
         let icmp = pkt.layer_name("icmp").unwrap();
         let data = icmp.metadata("data").unwrap();
@@ -486,7 +504,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]);
+        let msg = RTShark::parse(&mut reader, &[], &[]);
         match msg {
             Err(_) => (),
             _ => panic!("invalid result"),
@@ -516,7 +534,7 @@ mod tests {
     fn test_access_packet_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -538,7 +556,7 @@ mod tests {
     fn test_access_packet_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -560,7 +578,7 @@ mod tests {
     fn test_access_layer_index() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -579,7 +597,7 @@ mod tests {
     fn test_access_layer_name() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -621,7 +639,7 @@ mod tests {
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -643,7 +661,7 @@ mod tests {
     fn test_access_layer_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -660,7 +678,7 @@ mod tests {
     fn test_access_layer_into_iter() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -677,7 +695,7 @@ mod tests {
     fn test_access_layer_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &[]).unwrap();
+        let msg = RTShark::parse(&mut reader, &[], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -695,7 +713,7 @@ mod tests {
     fn test_parser_filter_metadata() {
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(XML_TCP.as_bytes()));
 
-        let msg = RTShark::parse(&mut reader, &["ip.src".to_string()]).unwrap();
+        let msg = RTShark::parse(&mut reader, &["ip.src".to_string()], &[]).unwrap();
         let pkt = match msg {
             Some(p) => p,
             _ => panic!("invalid Output type"),
@@ -722,19 +740,19 @@ mod tests {
         </pdml>"#;
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
-        match RTShark::parse(&mut reader, &[]).unwrap() {
+        match RTShark::parse(&mut reader, &[], &[]).unwrap() {
             Some(p) => assert!(p.layer_name("tcp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match RTShark::parse(&mut reader, &[]).unwrap() {
+        match RTShark::parse(&mut reader, &[], &[]).unwrap() {
             Some(p) => assert!(p.layer_name("udp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match RTShark::parse(&mut reader, &[]).unwrap() {
+        match RTShark::parse(&mut reader, &[], &[]).unwrap() {
             Some(p) => assert!(p.layer_name("igmp").is_some()),
             _ => panic!("invalid Output type"),
         }
-        match RTShark::parse(&mut reader, &[]).unwrap() {
+        match RTShark::parse(&mut reader, &[], &[]).unwrap() {
             None => (),
             _ => panic!("invalid Output type"),
         }
@@ -759,7 +777,7 @@ mod tests {
         </pdml>"#;
 
         let mut reader = quick_xml::Reader::from_reader(BufReader::new(xml.as_bytes()));
-        match RTShark::parse(&mut reader, &[]).unwrap() {
+        match RTShark::parse(&mut reader, &[], &[]).unwrap() {
             Some(p) => match p.layer_name("btcommon") {
                 Some(layer) => {
                     layer

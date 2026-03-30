@@ -1,5 +1,14 @@
 use crate::metadata::Metadata;
 
+/// A group of [Metadata] sharing a common parent field, as found in the original packet tree.
+/// Returned by [Layer::groups].
+pub struct MetadataGroup<'a> {
+    /// The parent field (e.g. `tls.record`)
+    pub parent: &'a Metadata,
+    /// The child fields that fall within the parent's byte range
+    pub fields: Vec<&'a Metadata>,
+}
+
 /// A layer is a protocol in the protocol stack of a packet (example: IP layer). It may contain multiple [Metadata].
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Layer {
@@ -76,6 +85,45 @@ impl Layer {
     /// ```
     pub fn metadata(&self, name: &str) -> Option<&Metadata> {
         self.metadata.iter().find(|m| m.name().eq(name))
+    }
+
+    /// Group metadata by a named parent field using byte-range containment.
+    ///
+    /// Returns one [MetadataGroup] per occurrence of `parent_name`, each containing
+    /// the child fields whose position falls within the parent's byte range.
+    /// Requires the parent field to be in the whitelist so its `pos`/`size` are populated.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // With "tls.record", "tls.record.content_type", "tls.record.length" in the whitelist:
+    /// // for group in tls_layer.groups("tls.record") {
+    /// //     println!("{:?}", group.parent.display());
+    /// //     for field in &group.fields {
+    /// //         println!("  {} = {}", field.name(), field.value());
+    /// //     }
+    /// // }
+    /// ```
+    pub fn groups<'a>(&'a self, parent_name: &str) -> Vec<MetadataGroup<'a>> {
+        self.metadata
+            .iter()
+            .filter(|m| m.name() == parent_name)
+            .map(|parent| {
+                let fields = match (parent.position(), parent.size()) {
+                    (Some(r_pos), Some(r_size)) => self
+                        .metadata
+                        .iter()
+                        .filter(|m| {
+                            m.name() != parent_name
+                                && m.position()
+                                    .is_some_and(|p| p >= r_pos && p < r_pos + r_size)
+                        })
+                        .collect(),
+                    _ => vec![],
+                };
+                MetadataGroup { parent, fields }
+            })
+            .collect()
     }
 
     /// Get an iterator on the list of [Metadata] for this [Layer].

@@ -47,7 +47,7 @@ mod rtshark;
 mod xml;
 
 pub use builder::{RTSharkBuilder, RTSharkBuilderReady, RTSharkVersion};
-pub use layer::Layer;
+pub use layer::{Layer, MetadataGroup};
 pub use metadata::Metadata;
 pub use packet::Packet;
 pub use rtshark::RTShark;

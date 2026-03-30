@@ -69,7 +69,7 @@ impl<'a> RTSharkBuilder {
             input_path: vec![path],
             live_capture: false,
             metadata_blacklist: vec![],
-            metadata_whitelist: None,
+            metadata_whitelist: vec![],
             capture_filter: "",
             display_filter: "",
             env_path: "",
@@ -161,8 +161,8 @@ pub struct RTSharkBuilderReady<'a> {
     live_capture: bool,
     /// filter out (blacklist) useless metadata names, to prevent storing them in output packet structure
     metadata_blacklist: Vec<String>,
-    /// filter out (whitelist) useless metadata names, to prevent TShark to put them in PDML report
-    metadata_whitelist: Option<Vec<String>>,
+    /// Names of metadata fields to retain; any field not in this list is excluded from the output packet structure. No filtering is applied if empty.
+    metadata_whitelist: Vec<String>,
     /// capture_filter : string to be passed to libpcap to filter packets (let pass only packets matching this filter)
     capture_filter: &'a str,
     /// display filter : expression filter to match before TShark prints a packet
@@ -307,11 +307,7 @@ impl<'a> RTSharkBuilderReady<'a> {
     #[must_use]
     pub fn metadata_whitelist(&self, whitelist: &'a str) -> Self {
         let mut new = self.clone();
-        if let Some(wl) = &mut new.metadata_whitelist {
-            wl.push(whitelist.to_owned());
-        } else {
-            new.metadata_whitelist = Some(vec![whitelist.to_owned()]);
-        }
+        new.metadata_whitelist.push(whitelist.to_owned());
         new
     }
 
@@ -448,10 +444,10 @@ impl<'a> RTSharkBuilderReady<'a> {
     }
 
     /// Let TShark use a specific lua plugin.
-    /// 
+    ///
     /// See <https://wiki.wireshark.org/Lua/Examples#user-content-a-custom-file-reader--writer-tutorial-script> for more details.
-    /// 
-    /// 
+    ///
+    ///
     /// ### Example: Prepare an instance of TShark to use a specific plugin
     ///
     /// ```
@@ -510,7 +506,11 @@ impl<'a> RTSharkBuilderReady<'a> {
     pub fn spawn(&self) -> Result<RTShark> {
         let tshark_params = self.prepare_args_unbuffered()?;
         let tshark_child = self.spawn_tshark(&tshark_params)?;
-        Ok(RTShark::new(tshark_child, self.metadata_blacklist.clone()))
+        Ok(RTShark::new(
+            tshark_child,
+            self.metadata_blacklist.clone(),
+            self.metadata_whitelist.clone(),
+        ))
     }
 
     /// Starts an asynchronous TShark process given the provided parameters, mapped to a new [RTSharkAsync] instance.
@@ -579,6 +579,7 @@ impl<'a> RTSharkBuilderReady<'a> {
         Ok(crate::RTSharkAsync::new(
             tshark_child,
             self.metadata_blacklist.clone(),
+            self.metadata_whitelist.clone(),
         ))
     }
 
@@ -728,12 +729,6 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["-o", option]);
         }
 
-        if let Some(wl) = &self.metadata_whitelist {
-            for whitelist_elem in wl {
-                tshark_params.extend(&["-e", whitelist_elem]);
-            }
-        }
-
         for protocol in &self.disabled_protocols {
             tshark_params.extend(&["--disable-protocol", protocol]);
         }
@@ -796,7 +791,6 @@ mod tests {
 
         tmp_dir.close().expect("Error deleting fifo dir");
     }
-
 
     #[test]
     fn test_plugin() {

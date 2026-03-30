@@ -15,11 +15,16 @@ pub struct RTSharkAsync {
     process: Option<tokio::process::Child>,
     parser: quick_xml::Reader<tokio::io::BufReader<tokio::process::ChildStdout>>,
     stderr: tokio::io::BufReader<tokio::process::ChildStderr>,
-    filters: Vec<String>,
+    blacklist: Vec<String>,
+    whitelist: Vec<String>,
 }
 
 impl RTSharkAsync {
-    pub(crate) fn new(mut process: tokio::process::Child, filters: Vec<String>) -> Self {
+    pub(crate) fn new(
+        mut process: tokio::process::Child,
+        blacklist: Vec<String>,
+        whitelist: Vec<String>,
+    ) -> Self {
         let buf_reader = tokio::io::BufReader::new(process.stdout.take().unwrap());
         let stderr = tokio::io::BufReader::new(process.stderr.take().unwrap());
         let parser = quick_xml::Reader::from_reader(buf_reader);
@@ -28,7 +33,8 @@ impl RTSharkAsync {
             process: Some(process),
             parser,
             stderr,
-            filters,
+            blacklist,
+            whitelist,
         }
     }
     /// Read a packet from thsark output and map it to the [Packet] type.
@@ -75,7 +81,7 @@ impl RTSharkAsync {
     /// }
     /// ```
     pub async fn read(&mut self) -> std::io::Result<Option<Packet>> {
-        let ret = RTSharkAsync::parse(&mut self.parser, &self.filters).await?;
+        let ret = RTSharkAsync::parse(&mut self.parser, &self.blacklist, &self.whitelist).await?;
         if ret.is_none() {
             self.on_eof().await?;
         }
@@ -105,7 +111,8 @@ impl RTSharkAsync {
 
     pub(crate) async fn parse<B: AsyncBufRead + Unpin>(
         reader: &mut Reader<B>,
-        filters: &[String],
+        blacklist: &[String],
+        whitelist: &[String],
     ) -> std::io::Result<Option<Packet>> {
         let mut parser = RTSharkParser::new();
         let mut buf = vec![];
@@ -118,7 +125,7 @@ impl RTSharkAsync {
                 )
             })?;
 
-            match parser.parse(event, filters)? {
+            match parser.parse(event, blacklist, whitelist)? {
                 ParserResult::Continue => (),
                 ParserResult::Packet(packet) => return Ok(Some(packet)),
                 ParserResult::Eof => return Ok(None),

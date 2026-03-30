@@ -20,12 +20,14 @@ pub struct RTShark {
     /// stderr
     stderr: BufReader<ChildStderr>,
     /// optional metadata blacklist, to prevent storing useless metadata in output packet structure
-    filters: Vec<String>,
+    blacklist: Vec<String>,
+    /// optional metadata whitelist, to store only the listed metadata in output packet structure
+    whitelist: Vec<String>,
 }
 
 impl RTShark {
     /// create a new RTShark instance from a successful builder call.
-    pub(crate) fn new(mut process: Child, filters: Vec<String>) -> Self {
+    pub(crate) fn new(mut process: Child, blacklist: Vec<String>, whitelist: Vec<String>) -> Self {
         let buf_reader = BufReader::new(process.stdout.take().unwrap());
         let stderr = BufReader::new(process.stderr.take().unwrap());
         let parser = quick_xml::Reader::from_reader(buf_reader);
@@ -34,7 +36,8 @@ impl RTShark {
             process: Some(process),
             parser,
             stderr,
-            filters,
+            blacklist,
+            whitelist,
         }
     }
 
@@ -74,7 +77,7 @@ impl RTShark {
     pub fn read(&mut self) -> Result<Option<Packet>> {
         let xml_reader = &mut self.parser;
 
-        let msg = RTShark::parse(xml_reader, &self.filters);
+        let msg = RTShark::parse(xml_reader, &self.blacklist, &self.whitelist);
         if let Ok(ref msg) = msg {
             let done = match msg {
                 None => {
@@ -105,7 +108,8 @@ impl RTShark {
 
     pub(crate) fn parse<B: BufRead>(
         reader: &mut Reader<B>,
-        filters: &[String],
+        blacklist: &[String],
+        whitelist: &[String],
     ) -> std::io::Result<Option<Packet>> {
         let mut parser = RTSharkParser::new();
         let mut buf = vec![];
@@ -118,7 +122,7 @@ impl RTShark {
                 )
             })?;
 
-            match parser.parse(event, filters)? {
+            match parser.parse(event, blacklist, whitelist)? {
                 ParserResult::Continue => (),
                 ParserResult::Packet(packet) => return Ok(Some(packet)),
                 ParserResult::Eof => return Ok(None),
@@ -508,9 +512,10 @@ mod tests {
             .metadata_whitelist("nosuchproto.nosuchmetadata");
         let mut rtshark = builder.spawn().unwrap();
 
-        // read a packet
-        let ret = rtshark.read();
-        assert!(ret.is_err());
+        // whitelist filtering is now done at parse time, so tshark succeeds but
+        // no metadata matching the non-existent field is stored
+        let pkt = rtshark.read().unwrap().unwrap();
+        assert!(pkt.layer_name("nosuchproto").is_none());
 
         rtshark.kill();
 
@@ -1335,5 +1340,69 @@ mod tests {
         let output = std::fs::read(output).unwrap();
 
         assert_eq!(normalized, output);
+    }
+
+    #[test]
+    fn test_tls_record_grouping() {
+        let pcap = include_bytes!("../assets/test_tls.pcap");
+
+        // write pcap to a temp file
+        let tmp_dir = tempdir::TempDir::new("test_pcap").unwrap();
+        let pcap_path = tmp_dir.path().join("test_tls.pcap");
+        let mut output = std::fs::File::create(&pcap_path).expect("unable to open file");
+        output.write_all(pcap).expect("unable to write pcap");
+        output.flush().expect("unable to flush");
+
+        // include tls.record parent so we can group children by containment
+        let builder = RTSharkBuilder::builder()
+            .input_path(pcap_path.to_str().unwrap())
+            .display_filter("frame.number == 6")
+            .metadata_whitelist("tls.record")
+            .metadata_whitelist("tls.record.content_type")
+            .metadata_whitelist("tls.record.length");
+        let mut rtshark = builder.spawn().unwrap();
+
+        let pkt = rtshark.read().unwrap().unwrap();
+        let tls = pkt.layer_name("tls").expect("expected a tls layer");
+
+        let records = tls.groups("tls.record");
+
+        assert_eq!(records.len(), 2, "expected two TLS records in this packet");
+
+        let field = |group: &crate::layer::MetadataGroup<'_>, name: &str| -> String {
+            group
+                .fields
+                .iter()
+                .find(|m| m.name() == name)
+                .map(|m| m.value().to_string())
+                .unwrap_or_else(|| "?".to_string())
+        };
+
+        // record 1: Handshake (22), length 122
+        assert_eq!(
+            field(&records[0], "tls.record.content_type"),
+            "22",
+            "first record: expected content_type 22 (Handshake)"
+        );
+        assert_eq!(
+            field(&records[0], "tls.record.length"),
+            "122",
+            "first record: expected length 122"
+        );
+
+        // record 2: Change Cipher Spec (20), length 1
+        assert_eq!(
+            field(&records[1], "tls.record.content_type"),
+            "20",
+            "second record: expected content_type 20 (Change Cipher Spec)"
+        );
+        assert_eq!(
+            field(&records[1], "tls.record.length"),
+            "1",
+            "second record: expected length 1"
+        );
+
+        rtshark.kill();
+        tmp_dir.close().expect("error deleting temp dir");
     }
 }
