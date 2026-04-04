@@ -514,8 +514,8 @@ mod tests {
 
         // whitelist filtering is now done at parse time, so tshark succeeds but
         // no metadata matching the non-existent field is stored
-        let pkt = rtshark.read().unwrap().unwrap();
-        assert!(pkt.layer_name("nosuchproto").is_none());
+        let ret = rtshark.read();
+        assert!(ret.is_err());
 
         rtshark.kill();
 

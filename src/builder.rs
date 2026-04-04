@@ -729,6 +729,30 @@ impl<'a> RTSharkBuilderReady<'a> {
             tshark_params.extend(&["-o", option]);
         }
 
+        if !self.metadata_whitelist.is_empty() {
+            // check if there are grouped metadata on whitelist => we can't use -e option
+            // Tshark output becomes very messy when there are subtypes, they are not in a logical order anymore, see the following example :
+            // tshark -r ./assets/test_tls.pcap -n -Q -Y "frame.number == 6" -e tls.record -e tls.record.content_type -e tls.record.length -e tls -Tpdml -l
+            //   <field name="tls.record" value="1"/>
+            //   <field name="tls.record" value="1"/>
+            //   <field name="tls.record.content_type" value="22"/>
+            //   <field name="tls.record.content_type" value="20"/>
+            //   <field name="tls.record.length" value="122"/>
+            //   <field name="tls.record.length" value="1"/>
+            //   <field name="tls" value="tls"/>
+
+            let can_use_e_option = self
+                .metadata_whitelist
+                .iter()
+                .all(|elem| elem.chars().filter(|&c| c == '.').count() < 2);
+
+            if can_use_e_option {
+                for whitelist_elem in &self.metadata_whitelist {
+                    tshark_params.extend(&["-e", whitelist_elem]);
+                }
+            }
+        }
+
         for protocol in &self.disabled_protocols {
             tshark_params.extend(&["--disable-protocol", protocol]);
         }
