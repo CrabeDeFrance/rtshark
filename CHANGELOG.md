@@ -1,3 +1,9 @@
+# 4.3.0 (2026-04-04)
+
+## Features
+
+- Adds support for capturing groups of metadata (#36) thanks to eyJhb.
+
 # 4.2.1 (2026-02-17)
 
 ## Features
