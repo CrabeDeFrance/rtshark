@@ -1,3 +1,9 @@
+#
+
+## Features
+
+- Update quick-xml dependencies to 0.39 (#41).
+
 # 4.3.0 (2026-04-04)
 
 ## Features
