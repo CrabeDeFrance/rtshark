@@ -565,8 +565,8 @@ mod tests {
         let mut rtshark = builder.spawn().unwrap();
 
         // read a packet
-        let pkt = rtshark.read().unwrap().unwrap();
-        assert!(pkt.layer_name("nosuchproto").is_none());
+        let ret = rtshark.read();
+        assert!(ret.is_err());
 
         rtshark.kill();
 
