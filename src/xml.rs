@@ -131,11 +131,6 @@ impl RTSharkParser {
     }
 
     fn add_metadata(packet: &mut Packet, metadata: Metadata) -> Result<()> {
-        // Create a new layer if the field's protocol does not exist yet as a layer.
-        if let Some(proto) = metadata.name().split('.').next() {
-            packet.push_if_not_exist(proto.to_owned());
-        }
-
         if let Some(layer) = packet.last_layer_mut() {
             layer.add(metadata);
         } else {
